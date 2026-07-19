@@ -31,7 +31,7 @@ and shows a notification titled `Portal App Inspector active`.
 The notification copy action copies a URL like:
 
 ```text
-https://portal-app-inspector.github.io/connect?host=192.168.0.5&port=4896&sessionToken=...
+https://omkar-tenkale.github.io/portal-app-inspector/connect?host=192.168.0.5&port=4896&sessionToken=...
 ```
 
 ## Protocol
@@ -69,4 +69,12 @@ errors inside `payload` while still returning `ok = true`.
 ./gradlew :lib:build :plugins:files:build
 ./gradlew :app:wasmJsBrowserDistribution
 ./gradlew :demo:assembleDebug
+```
+
+## GitHub Pages
+
+The Portal web UI is deployed from GitHub Actions on pushes to `main`.
+
+```text
+https://omkar-tenkale.github.io/portal-app-inspector/connect
 ```

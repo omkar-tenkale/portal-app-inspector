@@ -53,7 +53,7 @@ object PortalAppInspector {
     private const val RequestTimeoutMillis = 5_000L
     private const val NotificationId = 4896
     private const val NotificationChannelId = "portal_app_inspector"
-    private const val PortalUrlBase = "https://portal-app-inspector.github.io/connect"
+    private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
 
     private val started = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
