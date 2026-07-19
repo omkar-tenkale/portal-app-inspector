@@ -7,7 +7,10 @@ import android.net.Uri
 
 class PortalInitializerProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let(PortalAppInspector::start)
+        context?.let { appContext ->
+            PortalAppInspector.start(appContext)
+            PortalAppInspector.startForegroundService(appContext)
+        }
         return true
     }
 

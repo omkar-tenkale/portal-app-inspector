@@ -4,9 +4,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.PowerManager
+import android.util.Log
 import io.github.portalappinspector.PortalHealth
 import io.github.portalappinspector.PortalManifest
 import io.github.portalappinspector.PortalPlugin
@@ -54,12 +58,15 @@ object PortalAppInspector {
     private const val NotificationId = 4896
     private const val NotificationChannelId = "portal_app_inspector"
     private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
+    private const val LogTag = "PortalAppInspector"
 
     private val started = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var server: Any? = null
     private var state: PortalRuntimeState? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     fun start(context: Context) {
         if (!started.compareAndSet(false, true)) return
@@ -81,9 +88,43 @@ object PortalAppInspector {
                 plugins = plugins.associateBy { it.id },
             )
             state = nextState
+            acquireRuntimeLocks(appContext)
             server = startServer(nextState)
+            Log.i(LogTag, "Portal URL: ${nextState.portalUrl}")
             showNotification(nextState)
         }
+    }
+
+    fun startForegroundService(context: Context) {
+        val intent = Intent(context.applicationContext, PortalAppInspectorService::class.java)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.applicationContext.startForegroundService(intent)
+            } else {
+                context.applicationContext.startService(intent)
+            }
+        }.onFailure { error ->
+            Log.w(LogTag, "Unable to start foreground service", error)
+        }
+    }
+
+    internal fun promoteToForeground(service: Service) {
+        ensureNotificationChannel(service)
+        val runtime = state
+        val notification = if (runtime == null) {
+            buildNotification(
+                context = service,
+                contentText = "Starting source server",
+                portalUrl = null,
+            )
+        } else {
+            buildNotification(
+                context = service,
+                contentText = "${runtime.host}:${runtime.port}",
+                portalUrl = runtime.portalUrl,
+            )
+        }
+        service.startForeground(NotificationId, notification)
     }
 
     private fun startServer(runtime: PortalRuntimeState) =
@@ -153,6 +194,29 @@ object PortalAppInspector {
             }
         }.start(wait = false)
 
+    @Suppress("DEPRECATION")
+    private fun acquireRuntimeLocks(context: Context) {
+        if (wakeLock?.isHeld != true) {
+            wakeLock = (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$LogTag:SourceServer")
+                .apply {
+                    setReferenceCounted(false)
+                    runCatching { acquire() }
+                        .onFailure { error -> Log.w(LogTag, "Unable to acquire wake lock", error) }
+                }
+        }
+
+        if (wifiLock?.isHeld != true) {
+            wifiLock = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "$LogTag:SourceServer")
+                .apply {
+                    setReferenceCounted(false)
+                    runCatching { acquire() }
+                        .onFailure { error -> Log.w(LogTag, "Unable to acquire Wi-Fi lock", error) }
+                }
+        }
+    }
+
     private suspend fun PortalRuntimeState.dispatch(request: PortalPluginRequest): PortalPluginResponse =
         runCatching {
             val plugin = plugins[request.pluginId]
@@ -204,10 +268,20 @@ object PortalAppInspector {
     private fun findLanAddress(): String? =
         NetworkInterface.getNetworkInterfaces()
             .asSequence()
-            .filter { it.isUp && !it.isLoopback }
-            .flatMap { it.inetAddresses.asSequence() }
-            .filterIsInstance<Inet4Address>()
-            .firstOrNull { !it.isLoopbackAddress }
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual && !it.isPointToPoint }
+            .flatMap { networkInterface ->
+                networkInterface.inetAddresses.asSequence()
+                    .filterIsInstance<Inet4Address>()
+                    .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                    .map { address -> networkInterface.name to address }
+            }
+            .sortedWith(
+                compareByDescending<Pair<String, Inet4Address>> { (name, _) -> name.startsWith("wlan") }
+                    .thenByDescending { (name, _) -> name.startsWith("rmnet") }
+                    .thenBy { (name, _) -> name },
+            )
+            .firstOrNull()
+            ?.second
             ?.hostAddress
 
     private fun generateSessionToken(): String {
@@ -222,7 +296,23 @@ object PortalAppInspector {
 
     private fun showNotification(runtime: PortalRuntimeState) {
         val manager = runtime.context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureNotificationChannel(runtime.context)
+
+        runCatching {
+            manager.notify(
+                NotificationId,
+                buildNotification(
+                    context = runtime.context,
+                    contentText = "${runtime.host}:${runtime.port}",
+                    portalUrl = runtime.portalUrl,
+                ),
+            )
+        }
+    }
+
+    private fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(
                 NotificationChannel(
                     NotificationChannelId,
@@ -231,36 +321,42 @@ object PortalAppInspector {
                 )
             )
         }
+    }
 
-        val copyIntent = Intent(runtime.context, PortalCopyUrlReceiver::class.java)
+    private fun buildNotification(
+        context: Context,
+        contentText: String,
+        portalUrl: String?,
+    ): Notification {
+        val copyIntent = Intent(context, PortalCopyUrlReceiver::class.java)
             .setAction(PortalCopyUrlReceiver.ActionCopyUrl)
-            .putExtra(PortalCopyUrlReceiver.ExtraUrl, runtime.portalUrl)
+            .putExtra(PortalCopyUrlReceiver.ExtraUrl, portalUrl)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val copyPendingIntent = PendingIntent.getBroadcast(runtime.context, 0, copyIntent, flags)
+        val copyPendingIntent = PendingIntent.getBroadcast(context, 0, copyIntent, flags)
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(runtime.context, NotificationChannelId)
+            Notification.Builder(context, NotificationChannelId)
         } else {
-            Notification.Builder(runtime.context)
+            Notification.Builder(context)
         }
 
-        val notification = builder
+        return builder
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Portal App Inspector active")
-            .setContentText("${runtime.host}:${runtime.port}")
+            .setContentText(contentText)
             .setOngoing(true)
-            .addAction(
-                Notification.Action.Builder(
-                    android.R.drawable.ic_menu_save,
-                    "Copy URL",
-                    copyPendingIntent,
-                ).build()
-            )
+            .apply {
+                if (portalUrl != null) {
+                    addAction(
+                        Notification.Action.Builder(
+                            android.R.drawable.ic_menu_save,
+                            "Copy URL",
+                            copyPendingIntent,
+                        ).build()
+                    )
+                }
+            }
             .build()
-
-        runCatching {
-            manager.notify(NotificationId, notification)
-        }
     }
 
     private data class PortalRuntimeState(
