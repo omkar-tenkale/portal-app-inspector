@@ -52,7 +52,7 @@ jobs:
         run: |
           cd app/build/dist/wasmJs/productionExecutable
           mkdir -p connect
-          cp index.html connect/index.html
+          find . -maxdepth 1 -type f -exec cp {} connect/ \;
           cp index.html 404.html
 
       - name: Configure Pages
