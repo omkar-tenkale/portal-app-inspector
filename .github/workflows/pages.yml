@@ -22,6 +22,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout DockLayout
+        uses: actions/checkout@v4
+        with:
+          repository: omkar-tenkale/DockLayout
+          path: docklayout-source
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -30,6 +36,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish DockLayout locally
+        working-directory: docklayout-source
+        env:
+          GROUP: io.github.omkar-tenkale.DockLayout
+          VERSION: -SNAPSHOT
+          POM_URL: https://github.com/omkar-tenkale/DockLayout
+        run: ./gradlew :docklayout:publishToMavenLocal
 
       - name: Build Portal UI
         run: ./gradlew :app:wasmJsBrowserDistribution
