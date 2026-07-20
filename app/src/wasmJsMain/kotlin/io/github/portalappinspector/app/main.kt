@@ -1,7 +1,13 @@
 package io.github.portalappinspector.app
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,14 +18,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -31,6 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,11 +63,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.browser.window
@@ -78,10 +89,6 @@ fun main() {
 
 private sealed interface PortalTab : DockLayoutTab
 
-private data object ConnectionTab : PortalTab {
-    override val title: String = "Connection"
-}
-
 private data object FilesTab : PortalTab {
     override val title: String = "Files"
 }
@@ -95,6 +102,9 @@ private data class UnsupportedPluginTab(
 @Composable
 private fun PortalApp() {
     MaterialTheme {
+        CompositionLocalProvider(
+            LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = FontFamily.SansSerif),
+        ) {
         val initialConnection = remember { PortalConnection.fromUrl() }
         var connection by remember { mutableStateOf(initialConnection) }
         val client = remember { PortalSourceClient() }
@@ -105,10 +115,7 @@ private fun PortalApp() {
         val scope = rememberCoroutineScope()
         val layoutState = rememberDockState<PortalTab>(
             dockLayout {
-                row {
-                    panel(weight = 0.32f) { tab(ConnectionTab) }
-                    panel(weight = 0.68f) { tab(FilesTab) }
-                }
+                panel { tab(FilesTab) }
             }
         )
 
@@ -130,8 +137,8 @@ private fun PortalApp() {
             }
         }
 
-        LaunchedEffect(Unit) {
-            if (connection.sessionToken.isNotBlank()) {
+        LaunchedEffect(connection) {
+            if (connection.isValid) {
                 connect()
             }
         }
@@ -141,43 +148,67 @@ private fun PortalApp() {
                 .fillMaxSize()
                 .background(PortalColors.background),
         ) {
-            TopBar()
-            DockLayout(
-                state = layoutState,
-                renderers = tabRenderers {
-                    renderer<ConnectionTab> { _, _ ->
-                        ConnectionPanel(
-                            connection = connection,
-                            onConnectionChange = { connection = it },
-                            health = health,
-                            manifest = manifest,
-                            error = error,
-                            connecting = connecting,
-                            onConnect = ::connect,
-                        )
-                    }
-                    renderer<FilesTab> { _, _ ->
-                        FilesPanel(
-                            connection = connection,
-                            client = client,
-                            enabled = manifest?.plugins?.any { it.id == "portal:files" } == true,
-                        )
-                    }
-                    renderer<UnsupportedPluginTab> { tab, _ ->
-                        UnsupportedPluginPanel(tab.pluginId)
-                    }
-                },
+            TopBar(health = health)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(8.dp),
-            )
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = manifest != null,
+                    enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
+                        animationSpec = tween(260),
+                        initialOffsetY = { it / 36 },
+                    ),
+                    exit = fadeOut(animationSpec = tween(160)),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    DockLayout(
+                        state = layoutState,
+                        renderers = tabRenderers {
+                            renderer<FilesTab> { _, _ ->
+                                FilesPanel(
+                                    connection = connection,
+                                    client = client,
+                                    enabled = manifest?.plugins?.any { it.id == "portal:files" } == true,
+                                )
+                            }
+                            renderer<UnsupportedPluginTab> { tab, _ ->
+                                UnsupportedPluginPanel(tab.pluginId)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                    )
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = manifest == null,
+                    enter = fadeIn(animationSpec = tween(260)) + slideInVertically(
+                        animationSpec = tween(320),
+                        initialOffsetY = { it / 18 },
+                    ),
+                    exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(
+                        animationSpec = tween(220),
+                        targetOffsetY = { -it / 28 },
+                    ),
+                ) {
+                    WelcomeConnectionPanel(
+                        connection = connection,
+                        connecting = connecting,
+                        error = error,
+                        onConnect = ::connect,
+                    )
+                }
+            }
         }
     }
 }
+}
 
 @Composable
-private fun TopBar() {
+private fun TopBar(health: PortalHealth?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -186,6 +217,8 @@ private fun TopBar() {
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        PortalMark(Modifier.width(28.dp).height(28.dp))
+        Spacer(Modifier.width(10.dp))
         Text(
             text = "Portal App Inspector",
             color = PortalColors.text,
@@ -193,70 +226,186 @@ private fun TopBar() {
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.weight(1f))
+        SourceStatus(health)
+    }
+}
+
+@Composable
+private fun PortalMark(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val scale = size.minDimension / 512f
+        fun x(value: Float) = value * scale
+        fun y(value: Float) = value * scale
+
+        fun drawPortalOval(
+            centerX: Float,
+            centerY: Float,
+            radiusX: Float,
+            radiusY: Float,
+            rotation: Float,
+            color: Color,
+            strokeWidth: Float,
+        ) {
+            rotate(
+                degrees = rotation,
+                pivot = androidx.compose.ui.geometry.Offset(x(centerX), y(centerY)),
+            ) {
+                drawOval(
+                    color = color,
+                    topLeft = androidx.compose.ui.geometry.Offset(x(centerX - radiusX), y(centerY - radiusY)),
+                    size = androidx.compose.ui.geometry.Size(x(radiusX * 2), y(radiusY * 2)),
+                    style = Stroke(width = x(strokeWidth)),
+                )
+            }
+        }
+
+        drawRoundRect(
+            color = PortalColors.topBar,
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(x(88f), y(88f)),
+        )
+        drawPortalOval(216f, 256f, 96f, 140f, 15f, PortalColors.text, 26f)
+        drawPortalOval(316f, 256f, 76f, 110f, 30f, PortalColors.logo, 26f)
+        clipRect(top = 0f, bottom = y(256f)) {
+            drawPortalOval(216f, 256f, 96f, 140f, 15f, PortalColors.topBar, 52f)
+            drawPortalOval(216f, 256f, 96f, 140f, 15f, PortalColors.text, 26f)
+        }
+        clipRect(top = y(256f), bottom = y(512f)) {
+            drawPortalOval(316f, 256f, 76f, 110f, 30f, PortalColors.topBar, 52f)
+            drawPortalOval(316f, 256f, 76f, 110f, 30f, PortalColors.logo, 26f)
+        }
+    }
+}
+
+@Composable
+private fun SourceStatus(health: PortalHealth?) {
+    val connected = health != null
+    Row(
+        modifier = Modifier
+            .height(32.dp)
+            .background(PortalColors.card, RoundedCornerShape(7.dp))
+            .border(1.dp, PortalColors.border, RoundedCornerShape(7.dp))
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .background(if (connected) PortalColors.success else PortalColors.muted, RoundedCornerShape(99.dp)),
+        )
         Text(
-            text = "Source browser",
-            color = PortalColors.muted,
+            text = health?.sourceName ?: "No source connected",
+            color = if (connected) PortalColors.text else PortalColors.muted,
             fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 @Composable
-private fun ConnectionPanel(
+private fun WelcomeConnectionPanel(
     connection: PortalConnection,
-    onConnectionChange: (PortalConnection) -> Unit,
-    health: PortalHealth?,
-    manifest: PortalManifest?,
-    error: String?,
     connecting: Boolean,
+    error: String?,
     onConnect: () -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .width(460.dp)
+            .background(PortalColors.card, RoundedCornerShape(8.dp))
+            .border(1.dp, PortalColors.border, RoundedCornerShape(8.dp))
+            .padding(horizontal = 28.dp, vertical = 26.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Source connection", color = PortalColors.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        OutlinedTextField(
-            value = connection.host,
-            onValueChange = { onConnectionChange(connection.copy(host = it)) },
-            label = { Text("Host") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = connection.port,
-            onValueChange = { onConnectionChange(connection.copy(port = it.filter(Char::isDigit))) },
-            label = { Text("Port") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = connection.sessionToken,
-            onValueChange = { onConnectionChange(connection.copy(sessionToken = it)) },
-            label = { Text("Session token") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(onClick = onConnect, enabled = !connecting && connection.isValid) {
-            Text(if (connecting) "Connecting..." else "Connect")
+        PortalMark(Modifier.size(56.dp))
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "Welcome to Portal",
+                color = PortalColors.text,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = if (connection.isValid) {
+                    "A source app link was detected. Connect to begin inspecting it."
+                } else {
+                    "Open Portal from a source app to start an inspection session."
+                },
+                color = PortalColors.muted,
+                fontSize = 14.sp,
+            )
+        }
+        ConnectionTarget(connection)
+        Button(
+            onClick = onConnect,
+            enabled = !connecting && connection.isValid,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = PortalColors.success,
+                contentColor = PortalColors.submitText,
+                disabledContainerColor = PortalColors.button,
+                disabledContentColor = PortalColors.muted,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp),
+        ) {
+            Text(
+                text = when {
+                    connecting -> "Connecting..."
+                    error != null -> "Retry connection"
+                    connection.isValid -> "Connect to source"
+                    else -> "Waiting for source link"
+                },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
         if (connecting) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = PortalColors.success, modifier = Modifier.size(22.dp))
         }
         error?.let {
             StatusCard("Connection failed", it, PortalColors.error)
         }
-        health?.let {
-            StatusCard("Connected", "${it.sourceName} · protocol ${it.protocolVersion}", PortalColors.success)
+    }
+}
+
+@Composable
+private fun ConnectionTarget(connection: PortalConnection) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background, RoundedCornerShape(7.dp))
+            .border(1.dp, PortalColors.border, RoundedCornerShape(7.dp))
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = "Source",
+                color = PortalColors.muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = if (connection.isValid) "${connection.host}:${connection.port}" else "No source detected",
+                color = PortalColors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
-        manifest?.let {
-            Text("Plugins", color = PortalColors.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            it.plugins.forEach { plugin ->
-                Text("${plugin.id} · ${plugin.version}", color = PortalColors.muted, fontSize = 13.sp)
-            }
-        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = if (connection.isValid) "Ready" else "Missing source",
+            color = if (connection.isValid) PortalColors.success else PortalColors.warning,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -420,14 +569,10 @@ private class PortalSourceClient {
     private var nextRequestId = 0
 
     suspend fun health(connection: PortalConnection): PortalHealth =
-        httpClient.get("${connection.baseUrl}/portal/health") {
-            auth(connection)
-        }.body()
+        httpClient.get("${connection.baseUrl}/portal/health").body()
 
     suspend fun manifest(connection: PortalConnection): PortalManifest =
-        httpClient.get("${connection.baseUrl}/portal/manifest") {
-            auth(connection)
-        }.body()
+        httpClient.get("${connection.baseUrl}/portal/manifest").body()
 
     suspend fun request(
         connection: PortalConnection,
@@ -441,7 +586,6 @@ private class PortalSourceClient {
         )
         val batchResponse: PortalRpcBatchResponse =
             httpClient.post("${connection.baseUrl}/portal/rpc") {
-                auth(connection)
                 contentType(ContentType.Application.Json)
                 setBody(PortalRpcBatchRequest(listOf(request)))
             }.body()
@@ -457,19 +601,14 @@ private class PortalSourceClient {
         nextRequestId += 1
         return nextRequestId
     }
-
-    private fun io.ktor.client.request.HttpRequestBuilder.auth(connection: PortalConnection) {
-        header(HttpHeaders.Authorization, "Bearer ${connection.sessionToken}")
-    }
 }
 
 private data class PortalConnection(
     val host: String,
     val port: String,
-    val sessionToken: String,
 ) {
     val isValid: Boolean
-        get() = host.isNotBlank() && port.isNotBlank() && sessionToken.isNotBlank()
+        get() = host.isNotBlank() && port.isNotBlank()
 
     val baseUrl: String
         get() = "http://$host:$port"
@@ -485,11 +624,24 @@ private data class PortalConnection(
                     val value = it.substringAfter("=")
                     key to value
                 }
-            return PortalConnection(
+            val connection = PortalConnection(
                 host = params["host"].orEmpty(),
                 port = params["port"] ?: "4896",
-                sessionToken = params["sessionToken"].orEmpty(),
             )
+            cleanConnectUrl()
+            return connection
+        }
+
+        @OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+        private fun cleanConnectUrl() {
+            val path = window.location.pathname
+            val cleanPath = when {
+                path.endsWith("/connect") -> path.removeSuffix("connect")
+                path.endsWith("/connect/") -> path.removeSuffix("connect/")
+                else -> path
+            }.ifBlank { "/" }
+            val cleanUrl = cleanPath + window.location.hash
+            window.history.replaceState(null, "", cleanUrl)
         }
     }
 }
@@ -520,14 +672,17 @@ private fun formatSize(sizeBytes: Long?): String =
     }
 
 private object PortalColors {
-    val background = Color(0xFF101113)
-    val topBar = Color(0xFF191B20)
-    val card = Color(0xFF20232A)
-    val border = Color(0xFF343842)
-    val text = Color(0xFFF4F6FA)
-    val muted = Color(0xFF9AA3B2)
-    val accent = Color(0xFF5EA1FF)
-    val success = Color(0xFF40C463)
-    val warning = Color(0xFFFFC857)
+    val background = Color(0xFF0F0F0F)
+    val topBar = Color(0xFF0F0F0F)
+    val card = Color(0xFF262626)
+    val border = Color(0xFF404041)
+    val text = Color(0xFFF5F5F5)
+    val muted = Color(0xFFA8A8A8)
+    val accent = Color(0xFFFFA116)
+    val logo = Color(0xFFFFC01E)
+    val success = Color(0xFF2DB55D)
+    val warning = Color(0xFFFFA116)
     val error = Color(0xFFFF6B6B)
+    val button = Color(0xFF333333)
+    val submitText = Color(0xFFFFFFFF)
 }

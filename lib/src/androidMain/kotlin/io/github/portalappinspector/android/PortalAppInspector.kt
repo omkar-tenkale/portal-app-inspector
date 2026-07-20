@@ -1,5 +1,6 @@
 package io.github.portalappinspector.android
 
+import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,10 +8,27 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import io.github.portalappinspector.PortalHealth
 import io.github.portalappinspector.PortalManifest
 import io.github.portalappinspector.PortalPlugin
@@ -44,11 +62,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import top.canyie.pine.Pine
+import top.canyie.pine.PineConfig
+import top.canyie.pine.callback.MethodHook
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
-import java.security.SecureRandom
-import java.util.Base64
 import java.util.ServiceLoader
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -59,8 +78,12 @@ object PortalAppInspector {
     private const val NotificationChannelId = "portal_app_inspector"
     private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
     private const val LogTag = "PortalAppInspector"
+    private const val OverlayTag = "portal_app_inspector_overlay"
+    private const val PortalButtonTag = "portal_app_inspector_button"
+    private const val PortalDrawerTag = "portal_app_inspector_drawer"
 
     private val started = AtomicBoolean(false)
+    private val activityOverlayHookInstalled = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var server: Any? = null
@@ -73,10 +96,10 @@ object PortalAppInspector {
 
         val appContext = context.applicationContext
         PortalAndroidContext.install(appContext)
+        installActivityOverlayHook(appContext)
 
         scope.launch {
             val plugins = loadPlugins()
-            val sessionToken = generateSessionToken()
             val port = findOpenPort()
             val host = findLanAddress() ?: "127.0.0.1"
             val nextState = PortalRuntimeState(
@@ -84,7 +107,6 @@ object PortalAppInspector {
                 sourceName = appContext.packageName,
                 host = host,
                 port = port,
-                sessionToken = sessionToken,
                 plugins = plugins.associateBy { it.id },
             )
             state = nextState
@@ -92,6 +114,364 @@ object PortalAppInspector {
             server = startServer(nextState)
             Log.i(LogTag, "Portal URL: ${nextState.portalUrl}")
             showNotification(nextState)
+        }
+    }
+
+    private fun installActivityOverlayHook(context: Context) {
+        if (!activityOverlayHookInstalled.compareAndSet(false, true)) return
+
+        val applicationInfo = context.applicationInfo
+        PineConfig.debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+
+        runCatching {
+            Pine.hook(
+                Activity::class.java.getDeclaredMethod("onPostResume"),
+                object : MethodHook() {
+                    override fun afterCall(callFrame: Pine.CallFrame) {
+                        val activity = callFrame.thisObject as? Activity ?: return
+                        installWelcomeOverlay(activity)
+                    }
+                },
+            )
+        }.onFailure { error ->
+            Log.w(LogTag, "Unable to install activity overlay hook", error)
+        }
+    }
+
+    private fun installWelcomeOverlay(activity: Activity) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            addWelcomeOverlay(activity)
+        } else {
+            activity.runOnUiThread { addWelcomeOverlay(activity) }
+        }
+    }
+
+    private fun addWelcomeOverlay(activity: Activity) {
+        val decorView = activity.window?.decorView as? ViewGroup ?: return
+        if (decorView.findTaggedChild(OverlayTag) != null) return
+
+        val overlay = FrameLayout(activity).apply {
+            tag = OverlayTag
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        val buttonSize = activity.dp(56)
+        val margin = activity.dp(16)
+        val button = PortalFloatingButton(activity).apply {
+            tag = PortalButtonTag
+            elevation = activity.dp(8).toFloat()
+        }
+
+        overlay.addView(
+            button,
+            FrameLayout.LayoutParams(buttonSize, buttonSize, Gravity.END or Gravity.CENTER_VERTICAL).apply {
+                marginEnd = margin
+            },
+        )
+
+        decorView.addView(overlay)
+
+        button.post {
+            button.x = (overlay.width - button.width - margin).toFloat()
+            button.y = ((overlay.height - button.height) / 2).toFloat()
+            button.attachFloatingBehavior(overlay)
+        }
+    }
+
+    private fun PortalFloatingButton.attachFloatingBehavior(parent: FrameLayout) {
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0f
+        var startY = 0f
+        var dragging = false
+
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = view.x
+                    startY = view.y
+                    dragging = false
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (!dragging && dx * dx + dy * dy > touchSlop * touchSlop) {
+                        dragging = true
+                    }
+                    if (dragging) {
+                        view.x = (startX + dx).coerceToParent(parent.width, view.width)
+                        view.y = (startY + dy).coerceToParent(parent.height, view.height)
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) {
+                        snapButtonToEdge(parent, view)
+                    } else {
+                        showPortalDrawer(parent)
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) snapButtonToEdge(parent, view)
+                    true
+                }
+
+                else -> false
+            }
+        }
+    }
+
+    private fun showPortalDrawer(parent: FrameLayout) {
+        if (parent.findTaggedChild(PortalDrawerTag) != null) return
+
+        lateinit var drawer: PortalDrawerView
+        drawer = PortalDrawerView(
+            context = parent.context,
+            portalUrl = state?.portalUrl,
+            onSwipeBack = { hidePortalDrawer(parent, drawer) },
+        ).apply {
+            tag = PortalDrawerTag
+            translationX = parent.width.toFloat()
+            elevation = parent.context.dp(12).toFloat()
+            attachSwipeBackBehavior(parent, consumeEvents = true)
+        }
+
+        parent.addView(
+            drawer,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        drawer.animate()
+            .translationX(0f)
+            .setDuration(220L)
+            .start()
+    }
+
+    private fun View.attachSwipeBackBehavior(parent: FrameLayout, consumeEvents: Boolean) {
+        val swipeThreshold = context.dp(80)
+        var downRawX = 0f
+        var downRawY = 0f
+
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    consumeEvents
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (dx > swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                        hidePortalDrawer(parent, parent.findTaggedChild(PortalDrawerTag) ?: view)
+                    }
+                    consumeEvents
+                }
+
+                MotionEvent.ACTION_CANCEL -> consumeEvents
+                else -> consumeEvents
+            }
+        }
+    }
+
+    private fun hidePortalDrawer(parent: FrameLayout, drawer: View) {
+        drawer.animate()
+            .translationX(parent.width.toFloat())
+            .setDuration(200L)
+            .withEndAction {
+                (drawer as? PortalDrawerView)?.destroyWebView()
+                parent.removeView(drawer)
+            }
+            .start()
+    }
+
+    private fun snapButtonToEdge(parent: FrameLayout, button: View) {
+        val margin = parent.context.dp(12)
+        val targetX = if (button.x + button.width / 2f < parent.width / 2f) {
+            margin.toFloat()
+        } else {
+            (parent.width - button.width - margin).toFloat()
+        }.coerceToParent(parent.width, button.width, margin)
+        val targetY = button.y.coerceToParent(parent.height, button.height, margin)
+        button.animate()
+            .x(targetX)
+            .y(targetY)
+            .setDuration(180L)
+            .start()
+    }
+
+    private fun ViewGroup.findTaggedChild(tag: Any): View? {
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.tag == tag) return child
+        }
+        return null
+    }
+
+    private fun Context.dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun Float.coerceToParent(parentSize: Int, childSize: Int, margin: Int = 0): Float {
+        val min = margin.toFloat()
+        val max = (parentSize - childSize - margin).toFloat()
+        return if (max <= min) min else coerceIn(min, max)
+    }
+
+    private class PortalDrawerView(
+        context: Context,
+        portalUrl: String?,
+        onSwipeBack: () -> Unit,
+    ) : LinearLayout(context) {
+        private var webView: WebView? = null
+
+        init {
+            orientation = VERTICAL
+            isClickable = true
+            isFocusable = true
+            setBackgroundColor(Color.rgb(248, 250, 252))
+
+            addView(
+                FrameLayout(context).apply {
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        setStroke(context.dp(1), Color.rgb(226, 232, 240))
+                    }
+                    addView(
+                        TextView(context).apply {
+                            text = "Welcome to Portal"
+                            setTextColor(Color.rgb(15, 23, 42))
+                            textSize = 22f
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(context.dp(24), 0, context.dp(24), 0)
+                        },
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                },
+                LayoutParams(
+                    LayoutParams.MATCH_PARENT,
+                    context.dp(88),
+                ),
+            )
+
+            addView(
+                if (portalUrl == null) {
+                    TextView(context).apply {
+                        text = "Portal is starting..."
+                        setTextColor(Color.rgb(71, 85, 105))
+                        textSize = 16f
+                        gravity = Gravity.CENTER
+                    }
+                } else {
+                    WebView(context).apply {
+                        webView = this
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.loadWithOverviewMode = true
+                        settings.useWideViewPort = true
+                        attachWebViewSwipeBack(onSwipeBack)
+                        loadUrl(portalUrl)
+                    }
+                },
+                LayoutParams(
+                    LayoutParams.MATCH_PARENT,
+                    0,
+                    1f,
+                ),
+            )
+        }
+
+        fun destroyWebView() {
+            webView?.apply {
+                stopLoading()
+                loadUrl("about:blank")
+                destroy()
+            }
+            webView = null
+        }
+
+        private fun View.attachWebViewSwipeBack(onSwipeBack: () -> Unit) {
+            val swipeThreshold = context.dp(80)
+            var downRawX = 0f
+            var downRawY = 0f
+
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downRawX = event.rawX
+                        downRawY = event.rawY
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        val dx = event.rawX - downRawX
+                        val dy = event.rawY - downRawY
+                        if (dx > swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                            onSwipeBack()
+                        }
+                    }
+                }
+                false
+            }
+        }
+    }
+
+    private class PortalFloatingButton(context: Context) : View(context) {
+        private val leftRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val rightRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(255, 192, 30)
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val ringBounds = RectF()
+
+        init {
+            isClickable = true
+            isFocusable = true
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(20, 24, 31))
+                setStroke(context.dp(1), Color.argb(72, 255, 255, 255))
+            }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val size = width.coerceAtMost(height).toFloat()
+            val stroke = size * 0.08f
+            leftRingPaint.strokeWidth = stroke
+            rightRingPaint.strokeWidth = stroke
+
+            canvas.save()
+            canvas.rotate(15f, width * 0.43f, height * 0.5f)
+            ringBounds.set(width * 0.25f, height * 0.2f, width * 0.63f, height * 0.8f)
+            canvas.drawOval(ringBounds, leftRingPaint)
+            canvas.restore()
+
+            canvas.save()
+            canvas.rotate(30f, width * 0.59f, height * 0.5f)
+            ringBounds.set(width * 0.43f, height * 0.27f, width * 0.75f, height * 0.73f)
+            canvas.drawOval(ringBounds, rightRingPaint)
+            canvas.restore()
         }
     }
 
@@ -139,15 +519,10 @@ object PortalAppInspector {
                 anyHost()
                 allowMethod(HttpMethod.Get)
                 allowMethod(HttpMethod.Post)
-                allowHeader(HttpHeaders.Authorization)
                 allowHeader(HttpHeaders.ContentType)
             }
             routing {
                 get("/portal/health") {
-                    if (!call.isAuthorized(runtime)) {
-                        call.respond(HttpStatusCode.Unauthorized)
-                        return@get
-                    }
                     call.respond(
                         PortalHealth(
                             ok = true,
@@ -157,10 +532,6 @@ object PortalAppInspector {
                     )
                 }
                 get("/portal/manifest") {
-                    if (!call.isAuthorized(runtime)) {
-                        call.respond(HttpStatusCode.Unauthorized)
-                        return@get
-                    }
                     call.respond(
                         PortalManifest(
                             protocolVersion = PortalProtocol.Version,
@@ -178,10 +549,6 @@ object PortalAppInspector {
                     )
                 }
                 post("/portal/rpc") {
-                    if (!call.isAuthorized(runtime)) {
-                        call.respond(HttpStatusCode.Unauthorized)
-                        return@post
-                    }
                     val batch = runCatching { call.receive<PortalRpcBatchRequest>() }.getOrElse {
                         call.respond(HttpStatusCode.BadRequest)
                         return@post
@@ -242,11 +609,6 @@ object PortalAppInspector {
             )
         }
 
-    private fun io.ktor.server.application.ApplicationCall.isAuthorized(runtime: PortalRuntimeState): Boolean {
-        val expected = "Bearer ${runtime.sessionToken}"
-        return request.headers[HttpHeaders.Authorization] == expected
-    }
-
     private fun loadPlugins(): List<PortalPlugin> =
         ServiceLoader.load(PortalPlugin::class.java).toList()
 
@@ -283,16 +645,6 @@ object PortalAppInspector {
             .firstOrNull()
             ?.second
             ?.hostAddress
-
-    private fun generateSessionToken(): String {
-        val bytes = ByteArray(24)
-        SecureRandom().nextBytes(bytes)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        } else {
-            android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
-        }
-    }
 
     private fun showNotification(runtime: PortalRuntimeState) {
         val manager = runtime.context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -364,10 +716,9 @@ object PortalAppInspector {
         val sourceName: String,
         val host: String,
         val port: Int,
-        val sessionToken: String,
         val plugins: Map<String, PortalPlugin>,
     ) {
         val portalUrl: String =
-            "$PortalUrlBase?host=$host&port=$port&sessionToken=$sessionToken"
+            "$PortalUrlBase?host=$host&port=$port"
     }
 }

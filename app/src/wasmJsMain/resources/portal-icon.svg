@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <ellipse id="left-oval" cx="216" cy="256" rx="96" ry="140" transform="rotate(15 216 256)" fill="none" />
+    <ellipse id="right-oval" cx="316" cy="256" rx="76" ry="110" transform="rotate(30 316 256)" fill="none" />
+
+    <clipPath id="top-half">
+      <rect x="0" y="0" width="512" height="256" />
+    </clipPath>
+    <clipPath id="bottom-half">
+      <rect x="0" y="256" width="512" height="256" />
+    </clipPath>
+
+    <!-- Mask to create a transparent gap in the left oval where the right oval crosses over in the bottom half -->
+    <mask id="mask-left">
+      <rect x="0" y="0" width="512" height="512" fill="white" />
+      <use href="#right-oval" stroke="black" stroke-width="52" clip-path="url(#bottom-half)" />
+    </mask>
+
+    <!-- Mask to create a transparent gap in the right oval where the left oval crosses over in the top half -->
+    <mask id="mask-right">
+      <rect x="0" y="0" width="512" height="512" fill="white" />
+      <use href="#left-oval" stroke="black" stroke-width="52" clip-path="url(#top-half)" />
+    </mask>
+  </defs>
+
+  <use href="#left-oval" stroke="white" stroke-width="26" mask="url(#mask-left)" />
+  <use href="#right-oval" stroke="#FFC01E" stroke-width="26" mask="url(#mask-right)" />
+</svg>
