@@ -1,14 +1,18 @@
 package io.github.portalappinspector.android
 
+import android.Manifest
 import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -16,14 +20,17 @@ import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.text.TextUtils
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -81,10 +88,16 @@ object PortalAppInspector {
     private const val OverlayTag = "portal_app_inspector_overlay"
     private const val PortalButtonTag = "portal_app_inspector_button"
     private const val PortalDrawerTag = "portal_app_inspector_drawer"
+    private const val PortalPermissionPromptTag = "portal_app_inspector_permission_prompt"
+    private const val NotificationPermissionRequestCode = 4896
+    private const val NotificationPermissionPollMillis = 500L
 
     private val started = AtomicBoolean(false)
+    private val runtimeStarted = AtomicBoolean(false)
     private val activityOverlayHookInstalled = AtomicBoolean(false)
+    private val notificationPermissionPolling = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var server: Any? = null
     private var state: PortalRuntimeState? = null
@@ -97,7 +110,15 @@ object PortalAppInspector {
         val appContext = context.applicationContext
         PortalAndroidContext.install(appContext)
         installActivityOverlayHook(appContext)
+        startRuntimeIfReady(appContext)
+    }
 
+    private fun startRuntimeIfReady(context: Context) {
+        val appContext = context.applicationContext
+        if (!hasNotificationPermission(appContext)) return
+        if (!runtimeStarted.compareAndSet(false, true)) return
+
+        startForegroundService(appContext)
         scope.launch {
             val plugins = loadPlugins()
             val port = findOpenPort()
@@ -172,11 +193,20 @@ object PortalAppInspector {
         )
 
         decorView.addView(overlay)
+        overlay.applyInitialSystemBarPadding(decorView)
 
         button.post {
-            button.x = (overlay.width - button.width - margin).toFloat()
-            button.y = ((overlay.height - button.height) / 2).toFloat()
+            button.x = (overlay.width - overlay.paddingRight - button.width - margin)
+                .toFloat()
+                .coerceXInParent(overlay, button.width, margin)
+            button.y = (
+                overlay.paddingTop +
+                    (overlay.height - overlay.paddingTop - overlay.paddingBottom - button.height) / 2f
+                ).coerceYInParent(overlay, button.height, margin)
             button.attachFloatingBehavior(overlay)
+            if (!hasNotificationPermission(activity)) {
+                showNotificationPermissionPrompt(overlay, button)
+            }
         }
     }
 
@@ -206,8 +236,8 @@ object PortalAppInspector {
                         dragging = true
                     }
                     if (dragging) {
-                        view.x = (startX + dx).coerceToParent(parent.width, view.width)
-                        view.y = (startY + dy).coerceToParent(parent.height, view.height)
+                        view.x = (startX + dx).coerceXInParent(parent, view.width)
+                        view.y = (startY + dy).coerceYInParent(parent, view.height)
                     }
                     true
                 }
@@ -215,7 +245,15 @@ object PortalAppInspector {
                 MotionEvent.ACTION_UP -> {
                     if (dragging) {
                         snapButtonToEdge(parent, view)
+                        parent.findTaggedChild(PortalPermissionPromptTag)?.let { prompt ->
+                            positionPermissionPrompt(parent, view, prompt)
+                        }
+                    } else if (!hasNotificationPermission(parent.context)) {
+                        requestNotificationPermission(parent.context)
+                        pollNotificationPermission(parent)
                     } else {
+                        parent.findTaggedChild(PortalPermissionPromptTag)?.let { parent.removeView(it) }
+                        startRuntimeIfReady(parent.context)
                         showPortalDrawer(parent)
                     }
                     true
@@ -231,13 +269,90 @@ object PortalAppInspector {
         }
     }
 
+    private fun showNotificationPermissionPrompt(parent: FrameLayout, anchor: View) {
+        if (parent.findTaggedChild(PortalPermissionPromptTag) != null) return
+
+        val prompt = TextView(parent.context).apply {
+            tag = PortalPermissionPromptTag
+            text = "Allow notification permission to start"
+            setTextColor(Color.rgb(15, 23, 42))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(context.dp(14), context.dp(10), context.dp(14), context.dp(10))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = context.dp(14).toFloat()
+                setColor(Color.WHITE)
+                setStroke(context.dp(1), Color.rgb(226, 232, 240))
+            }
+            elevation = context.dp(9).toFloat()
+        }
+
+        parent.addView(
+            prompt,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        prompt.post { positionPermissionPrompt(parent, anchor, prompt) }
+    }
+
+    private fun positionPermissionPrompt(parent: FrameLayout, anchor: View, prompt: View) {
+        val margin = parent.context.dp(12)
+        val gap = parent.context.dp(10)
+        val centeredX = anchor.x + anchor.width / 2f - prompt.width / 2f
+        prompt.x = centeredX.coerceXInParent(parent, prompt.width, margin)
+
+        val aboveY = anchor.y - prompt.height - gap
+        prompt.y = if (aboveY >= parent.paddingTop + margin) {
+            aboveY
+        } else {
+            anchor.y + anchor.height + gap
+        }.coerceYInParent(parent, prompt.height, margin)
+    }
+
+    private fun requestNotificationPermission(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (hasNotificationPermission(context)) return
+
+        val activity = context as? Activity ?: return
+        runCatching {
+            activity.requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NotificationPermissionRequestCode,
+            )
+        }.onFailure { error ->
+            Log.w(LogTag, "Unable to request notification permission", error)
+        }
+    }
+
+    private fun pollNotificationPermission(parent: FrameLayout) {
+        if (!notificationPermissionPolling.compareAndSet(false, true)) return
+
+        val appContext = parent.context.applicationContext
+        val poll = object : Runnable {
+            override fun run() {
+                if (hasNotificationPermission(appContext)) {
+                    notificationPermissionPolling.set(false)
+                    parent.findTaggedChild(PortalPermissionPromptTag)?.let { parent.removeView(it) }
+                    startRuntimeIfReady(appContext)
+                    return
+                }
+                mainHandler.postDelayed(this, NotificationPermissionPollMillis)
+            }
+        }
+        mainHandler.postDelayed(poll, NotificationPermissionPollMillis)
+    }
+
     private fun showPortalDrawer(parent: FrameLayout) {
         if (parent.findTaggedChild(PortalDrawerTag) != null) return
 
         lateinit var drawer: PortalDrawerView
         drawer = PortalDrawerView(
             context = parent.context,
-            portalUrl = state?.portalUrl,
+            desktopPortalUrl = state?.portalUrl,
+            localPortalUrl = state?.localPortalUrl,
             onSwipeBack = { hidePortalDrawer(parent, drawer) },
         ).apply {
             tag = PortalDrawerTag
@@ -301,11 +416,11 @@ object PortalAppInspector {
     private fun snapButtonToEdge(parent: FrameLayout, button: View) {
         val margin = parent.context.dp(12)
         val targetX = if (button.x + button.width / 2f < parent.width / 2f) {
-            margin.toFloat()
+            (parent.paddingLeft + margin).toFloat()
         } else {
-            (parent.width - button.width - margin).toFloat()
-        }.coerceToParent(parent.width, button.width, margin)
-        val targetY = button.y.coerceToParent(parent.height, button.height, margin)
+            (parent.width - parent.paddingRight - button.width - margin).toFloat()
+        }.coerceXInParent(parent, button.width, margin)
+        val targetY = button.y.coerceYInParent(parent, button.height, margin)
         button.animate()
             .x(targetX)
             .y(targetY)
@@ -324,75 +439,85 @@ object PortalAppInspector {
     private fun Context.dp(value: Int): Int =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun Float.coerceToParent(parentSize: Int, childSize: Int, margin: Int = 0): Float {
-        val min = margin.toFloat()
-        val max = (parentSize - childSize - margin).toFloat()
+    private fun LinearLayout.LayoutParams.withTopMargin(value: Int): LinearLayout.LayoutParams =
+        apply { topMargin = value }
+
+    private fun LinearLayout.LayoutParams.withLeftMargin(value: Int): LinearLayout.LayoutParams =
+        apply { leftMargin = value }
+
+    private fun hasNotificationPermission(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    private fun FrameLayout.applyInitialSystemBarPadding(source: View) {
+        val insets = rootWindowInsets ?: source.rootWindowInsets ?: return
+        val systemBars = insets.systemBarInsets()
+        setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+        clipToPadding = false
+    }
+
+    @Suppress("DEPRECATION")
+    private fun WindowInsets.systemBarInsets(): SystemBarInsets =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getInsets(WindowInsets.Type.systemBars()).let { insets ->
+                SystemBarInsets(
+                    left = insets.left,
+                    top = insets.top,
+                    right = insets.right,
+                    bottom = insets.bottom,
+                )
+            }
+        } else {
+            SystemBarInsets(
+                left = systemWindowInsetLeft,
+                top = systemWindowInsetTop,
+                right = systemWindowInsetRight,
+                bottom = systemWindowInsetBottom,
+            )
+        }
+
+    private fun Float.coerceXInParent(parent: ViewGroup, childWidth: Int, margin: Int = 0): Float {
+        val min = (parent.paddingLeft + margin).toFloat()
+        val max = (parent.width - parent.paddingRight - childWidth - margin).toFloat()
         return if (max <= min) min else coerceIn(min, max)
     }
 
+    private fun Float.coerceYInParent(parent: ViewGroup, childHeight: Int, margin: Int = 0): Float {
+        val min = (parent.paddingTop + margin).toFloat()
+        val max = (parent.height - parent.paddingBottom - childHeight - margin).toFloat()
+        return if (max <= min) min else coerceIn(min, max)
+    }
+
+    private data class SystemBarInsets(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    )
+
     private class PortalDrawerView(
         context: Context,
-        portalUrl: String?,
+        desktopPortalUrl: String?,
+        localPortalUrl: String?,
         onSwipeBack: () -> Unit,
-    ) : LinearLayout(context) {
+    ) : FrameLayout(context) {
         private var webView: WebView? = null
 
         init {
-            orientation = VERTICAL
             isClickable = true
             isFocusable = true
             setBackgroundColor(Color.rgb(248, 250, 252))
 
             addView(
-                FrameLayout(context).apply {
-                    background = GradientDrawable().apply {
-                        setColor(Color.WHITE)
-                        setStroke(context.dp(1), Color.rgb(226, 232, 240))
-                    }
-                    addView(
-                        TextView(context).apply {
-                            text = "Welcome to Portal"
-                            setTextColor(Color.rgb(15, 23, 42))
-                            textSize = 22f
-                            gravity = Gravity.CENTER_VERTICAL
-                            setPadding(context.dp(24), 0, context.dp(24), 0)
-                        },
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                        ),
-                    )
-                },
-                LayoutParams(
-                    LayoutParams.MATCH_PARENT,
-                    context.dp(88),
+                createEntryPanel(
+                    context = context,
+                    desktopPortalUrl = desktopPortalUrl,
+                    localPortalUrl = localPortalUrl,
+                    onOpenHere = { url -> showWebView(url, onSwipeBack) },
                 ),
-            )
-
-            addView(
-                if (portalUrl == null) {
-                    TextView(context).apply {
-                        text = "Portal is starting..."
-                        setTextColor(Color.rgb(71, 85, 105))
-                        textSize = 16f
-                        gravity = Gravity.CENTER
-                    }
-                } else {
-                    WebView(context).apply {
-                        webView = this
-                        webViewClient = WebViewClient()
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.loadWithOverviewMode = true
-                        settings.useWideViewPort = true
-                        attachWebViewSwipeBack(onSwipeBack)
-                        loadUrl(portalUrl)
-                    }
-                },
                 LayoutParams(
                     LayoutParams.MATCH_PARENT,
-                    0,
-                    1f,
+                    LayoutParams.MATCH_PARENT,
                 ),
             )
         }
@@ -404,6 +529,252 @@ object PortalAppInspector {
                 destroy()
             }
             webView = null
+        }
+
+        private fun showWebView(portalUrl: String, onSwipeBack: () -> Unit) {
+            removeAllViews()
+            addView(
+                WebView(context).apply {
+                    webView = this
+                    webViewClient = WebViewClient()
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.loadWithOverviewMode = true
+                    settings.useWideViewPort = true
+                    attachWebViewSwipeBack(onSwipeBack)
+                    loadUrl(portalUrl)
+                },
+                LayoutParams(
+                    LayoutParams.MATCH_PARENT,
+                    LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+
+        private fun createEntryPanel(
+            context: Context,
+            desktopPortalUrl: String?,
+            localPortalUrl: String?,
+            onOpenHere: (String) -> Unit,
+        ): View {
+            val outer = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(context.dp(22), context.dp(34), context.dp(22), context.dp(28))
+            }
+
+            outer.addView(
+                PortalMarkView(context),
+                LinearLayout.LayoutParams(
+                    context.dp(44),
+                    context.dp(44),
+                ),
+            )
+
+            outer.addView(
+                TextView(context).apply {
+                    text = "Portal"
+                    setTextColor(Color.rgb(15, 23, 42))
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).withTopMargin(context.dp(12)),
+            )
+
+            outer.addView(
+                TextView(context).apply {
+                    text = "Inspect this app from your browser or continue here."
+                    setTextColor(Color.rgb(71, 85, 105))
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setPadding(0, context.dp(8), 0, 0)
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+
+            outer.addView(
+                createUrlPill(context, desktopPortalUrl ?: "Portal is starting..."),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    context.dp(44),
+                ).withTopMargin(context.dp(24)),
+            )
+
+            outer.addView(
+                createActionRow(context, desktopPortalUrl),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).withTopMargin(context.dp(14)),
+            )
+
+            outer.addView(
+                createDivider(context),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).withTopMargin(context.dp(30)),
+            )
+
+            outer.addView(
+                createOpenHereSection(context, localPortalUrl, onOpenHere),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).withTopMargin(context.dp(26)),
+            )
+
+            return outer
+        }
+
+        private fun createUrlPill(context: Context, textValue: String): View =
+            TextView(context).apply {
+                text = textValue
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.MIDDLE
+                setTextColor(Color.rgb(30, 41, 59))
+                textSize = 13f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(context.dp(14), 0, context.dp(14), 0)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = context.dp(22).toFloat()
+                    setColor(Color.WHITE)
+                    setStroke(context.dp(1), Color.rgb(203, 213, 225))
+                }
+            }
+
+        private fun createActionRow(context: Context, desktopPortalUrl: String?): View =
+            LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+
+                addView(
+                    createThinButton(context, "Desktop URL") {
+                        desktopPortalUrl?.let { copyToClipboard(context, it) }
+                    },
+                    LinearLayout.LayoutParams(0, context.dp(38), 1f),
+                )
+                addView(
+                    createThinButton(context, "Copy URL") {
+                        desktopPortalUrl?.let { copyToClipboard(context, it) }
+                    },
+                    LinearLayout.LayoutParams(0, context.dp(38), 1f).withLeftMargin(context.dp(10)),
+                )
+            }
+
+        private fun createDivider(context: Context): View =
+            LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                addView(createDividerLine(context), LinearLayout.LayoutParams(0, context.dp(1), 1f))
+                addView(
+                    TextView(context).apply {
+                        text = "or"
+                        setTextColor(Color.rgb(100, 116, 139))
+                        textSize = 12f
+                        gravity = Gravity.CENTER
+                    },
+                    LinearLayout.LayoutParams(context.dp(42), LinearLayout.LayoutParams.WRAP_CONTENT),
+                )
+                addView(createDividerLine(context), LinearLayout.LayoutParams(0, context.dp(1), 1f))
+            }
+
+        private fun createDividerLine(context: Context): View =
+            View(context).apply {
+                setBackgroundColor(Color.rgb(226, 232, 240))
+            }
+
+        private fun createOpenHereSection(
+            context: Context,
+            localPortalUrl: String?,
+            onOpenHere: (String) -> Unit,
+        ): View =
+            LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+
+                addView(
+                    TextView(context).apply {
+                        text = "Open here"
+                        setTextColor(Color.rgb(15, 23, 42))
+                        textSize = 18f
+                        gravity = Gravity.CENTER
+                    },
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+                addView(
+                    TextView(context).apply {
+                        text = "Launch the portal inside this overlay."
+                        setTextColor(Color.rgb(71, 85, 105))
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setPadding(0, context.dp(6), 0, 0)
+                    },
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+                addView(
+                    createPrimaryThinButton(context, "Open portal") {
+                        localPortalUrl?.let(onOpenHere)
+                    }.apply {
+                        isEnabled = localPortalUrl != null
+                        alpha = if (localPortalUrl == null) 0.55f else 1f
+                    },
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        context.dp(40),
+                    ).withTopMargin(context.dp(16)),
+                )
+            }
+
+        private fun createThinButton(context: Context, label: String, onClick: () -> Unit): TextView =
+            TextView(context).apply {
+                text = label
+                setTextColor(Color.rgb(30, 41, 59))
+                textSize = 13f
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = context.dp(10).toFloat()
+                    setColor(Color.WHITE)
+                    setStroke(context.dp(1), Color.rgb(203, 213, 225))
+                }
+                setOnClickListener { onClick() }
+            }
+
+        private fun createPrimaryThinButton(context: Context, label: String, onClick: () -> Unit): TextView =
+            TextView(context).apply {
+                text = label
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = context.dp(10).toFloat()
+                    setColor(Color.rgb(31, 41, 55))
+                }
+                setOnClickListener { onClick() }
+            }
+
+        private fun copyToClipboard(context: Context, value: String) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Portal URL", value))
         }
 
         private fun View.attachWebViewSwipeBack(onSwipeBack: () -> Unit) {
@@ -432,17 +803,7 @@ object PortalAppInspector {
     }
 
     private class PortalFloatingButton(context: Context) : View(context) {
-        private val leftRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val rightRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(255, 192, 30)
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val ringBounds = RectF()
+        private val mark = PortalMarkPainter()
 
         init {
             isClickable = true
@@ -456,6 +817,41 @@ object PortalAppInspector {
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
+            mark.draw(canvas, width, height)
+        }
+    }
+
+    private class PortalMarkView(context: Context) : View(context) {
+        private val mark = PortalMarkPainter()
+
+        init {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(20, 24, 31))
+                setStroke(context.dp(1), Color.argb(72, 255, 255, 255))
+            }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            mark.draw(canvas, width, height)
+        }
+    }
+
+    private class PortalMarkPainter {
+        private val leftRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val rightRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(255, 192, 30)
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val ringBounds = RectF()
+
+        fun draw(canvas: Canvas, width: Int, height: Int) {
             val size = width.coerceAtMost(height).toFloat()
             val stroke = size * 0.08f
             leftRingPaint.strokeWidth = stroke
@@ -476,6 +872,8 @@ object PortalAppInspector {
     }
 
     fun startForegroundService(context: Context) {
+        if (!hasNotificationPermission(context)) return
+
         val intent = Intent(context.applicationContext, PortalAppInspectorService::class.java)
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -720,5 +1118,7 @@ object PortalAppInspector {
     ) {
         val portalUrl: String =
             "$PortalUrlBase?host=$host&port=$port"
+        val localPortalUrl: String =
+            "$PortalUrlBase?host=localhost&port=$port"
     }
 }
