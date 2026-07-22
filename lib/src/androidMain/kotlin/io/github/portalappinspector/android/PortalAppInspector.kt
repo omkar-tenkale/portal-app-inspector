@@ -13,20 +13,26 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Base64
 import android.text.TextUtils
 import android.util.Log
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -75,8 +81,11 @@ import top.canyie.pine.callback.MethodHook
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
+import java.io.ByteArrayOutputStream
 import java.util.ServiceLoader
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.math.hypot
 
 object PortalAppInspector {
     private const val FirstPort = 4896
@@ -84,10 +93,12 @@ object PortalAppInspector {
     private const val NotificationId = 4896
     private const val NotificationChannelId = "portal_app_inspector"
     private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
+//    private const val PortalUrlBase = "http://10.0.2.2:8081/connect"
     private const val LogTag = "PortalAppInspector"
     private const val OverlayTag = "portal_app_inspector_overlay"
     private const val PortalButtonTag = "portal_app_inspector_button"
     private const val PortalDrawerTag = "portal_app_inspector_drawer"
+    private const val PortalDismissLayerTag = "portal_app_inspector_dismiss_layer"
     private const val PortalPermissionPromptTag = "portal_app_inspector_permission_prompt"
     private const val NotificationPermissionRequestCode = 4896
     private const val NotificationPermissionPollMillis = 500L
@@ -126,6 +137,9 @@ object PortalAppInspector {
             val nextState = PortalRuntimeState(
                 context = appContext,
                 sourceName = appContext.packageName,
+                sourcePackageName = appContext.packageName,
+                appName = appContext.portalAppName(),
+                appIconPngBase64 = appContext.portalAppIconPngBase64(),
                 host = host,
                 port = port,
                 plugins = plugins.associateBy { it.id },
@@ -182,7 +196,10 @@ object PortalAppInspector {
         val margin = activity.dp(16)
         val button = PortalFloatingButton(activity).apply {
             tag = PortalButtonTag
-            elevation = activity.dp(8).toFloat()
+            elevation = activity.dp(14).toFloat()
+            alpha = 0f
+            scaleX = 0.86f
+            scaleY = 0.86f
         }
 
         overlay.addView(
@@ -196,71 +213,108 @@ object PortalAppInspector {
         overlay.applyInitialSystemBarPadding(decorView)
 
         button.post {
+            val topInset = overlay.topSystemInset()
+            val bottomInset = overlay.bottomSystemInset()
             button.x = (overlay.width - overlay.paddingRight - button.width - margin)
                 .toFloat()
                 .coerceXInParent(overlay, button.width, margin)
             button.y = (
-                overlay.paddingTop +
-                    (overlay.height - overlay.paddingTop - overlay.paddingBottom - button.height) / 2f
+                topInset +
+                    (overlay.height - topInset - bottomInset - button.height) / 2f
                 ).coerceYInParent(overlay, button.height, margin)
             button.attachFloatingBehavior(overlay)
             if (!hasNotificationPermission(activity)) {
                 showNotificationPermissionPrompt(overlay, button)
             }
+            button.springMotion.springScaleTo(1f)
+            button.animate()
+                .alpha(1f)
+                .setDuration(120L)
+                .start()
         }
     }
 
     private fun PortalFloatingButton.attachFloatingBehavior(parent: FrameLayout) {
         val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        springMotion.onUpdate = {
+            parent.findTaggedChild(PortalPermissionPromptTag)?.let { prompt ->
+                positionPermissionPrompt(parent, this, prompt)
+            }
+        }
         var downRawX = 0f
         var downRawY = 0f
         var startX = 0f
         var startY = 0f
         var dragging = false
+        var velocityTracker: VelocityTracker? = null
 
         setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    parent.requestDisallowInterceptTouchEvent(true)
+                    springMotion.cancel()
+                    springMotion.springScaleTo(0.92f)
                     downRawX = event.rawX
                     downRawY = event.rawY
                     startX = view.x
                     startY = view.y
                     dragging = false
+                    velocityTracker = VelocityTracker.obtain().apply {
+                        addMovement(event)
+                    }
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
+                    velocityTracker?.addMovement(event)
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
-                    if (!dragging && dx * dx + dy * dy > touchSlop * touchSlop) {
+                    if (!isExpanded && !dragging && hypot(dx, dy) > touchSlop) {
                         dragging = true
                     }
                     if (dragging) {
                         view.x = (startX + dx).coerceXInParent(parent, view.width)
                         view.y = (startY + dy).coerceYInParent(parent, view.height)
+                        parent.findTaggedChild(PortalPermissionPromptTag)?.let { prompt ->
+                            positionPermissionPrompt(parent, view, prompt)
+                        }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    velocityTracker?.addMovement(event)
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val xVelocity = velocityTracker?.xVelocity ?: 0f
+                    val yVelocity = velocityTracker?.yVelocity ?: 0f
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    springMotion.springScaleTo(1f)
                     if (dragging) {
-                        snapButtonToEdge(parent, view)
-                        parent.findTaggedChild(PortalPermissionPromptTag)?.let { prompt ->
-                            positionPermissionPrompt(parent, view, prompt)
+                        snapButtonToEdge(parent, view, springMotion, xVelocity, yVelocity)
+                    } else if (isExpanded) {
+                        view.performClick()
+                        parent.findTaggedChild(PortalDrawerTag)?.let { drawer ->
+                            hidePortalDrawer(parent, drawer)
                         }
                     } else if (!hasNotificationPermission(parent.context)) {
+                        view.performClick()
                         requestNotificationPermission(parent.context)
                         pollNotificationPermission(parent)
                     } else {
+                        view.performClick()
                         parent.findTaggedChild(PortalPermissionPromptTag)?.let { parent.removeView(it) }
                         startRuntimeIfReady(parent.context)
-                        showPortalDrawer(parent)
+                        showPortalDrawer(parent, this)
                     }
                     true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    if (dragging) snapButtonToEdge(parent, view)
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    springMotion.springScaleTo(1f)
+                    if (dragging && !isExpanded) snapButtonToEdge(parent, view, springMotion)
                     true
                 }
 
@@ -286,6 +340,9 @@ object PortalAppInspector {
                 setStroke(context.dp(1), Color.rgb(226, 232, 240))
             }
             elevation = context.dp(9).toFloat()
+            alpha = 0f
+            scaleX = 0.96f
+            scaleY = 0.96f
         }
 
         parent.addView(
@@ -295,7 +352,15 @@ object PortalAppInspector {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
             ),
         )
-        prompt.post { positionPermissionPrompt(parent, anchor, prompt) }
+        prompt.post {
+            positionPermissionPrompt(parent, anchor, prompt)
+            prompt.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(140L)
+                .start()
+        }
     }
 
     private fun positionPermissionPrompt(parent: FrameLayout, anchor: View, prompt: View) {
@@ -345,87 +410,236 @@ object PortalAppInspector {
         mainHandler.postDelayed(poll, NotificationPermissionPollMillis)
     }
 
-    private fun showPortalDrawer(parent: FrameLayout) {
-        if (parent.findTaggedChild(PortalDrawerTag) != null) return
+    private fun showPortalDrawer(parent: FrameLayout, button: PortalFloatingButton) {
+        val existingDrawer = parent.findTaggedChild(PortalDrawerTag) as? PortalDrawerView
+        if (existingDrawer?.visibility == View.VISIBLE) return
+
+        if (!button.isExpanded) {
+            button.minimizedX = button.x
+            button.minimizedY = button.y
+        }
+        button.isExpanded = true
+
+        val sideMargin = parent.context.dp(12)
+        val surfaceGap = parent.context.dp(10)
+        val surfaceHorizontalMargin = parent.context.dp(8)
+        val surfaceBottomMargin = parent.context.dp(8)
+        val topInset = parent.topSystemInset()
+        val bottomInset = parent.bottomSystemInset()
+        val expandedX = (parent.width - parent.paddingRight - button.width - sideMargin)
+            .toFloat()
+            .coerceXInParent(parent, button.width, sideMargin)
+        val expandedY = topInset
+            .toFloat()
+            .coerceYInParent(parent, button.height)
+        val surfaceTopMargin = (topInset + button.height + surfaceGap)
+            .coerceAtMost(parent.height - bottomInset)
+        val surfaceHeight = (parent.height - surfaceTopMargin - bottomInset - surfaceBottomMargin)
+            .coerceAtLeast(0)
 
         lateinit var drawer: PortalDrawerView
-        drawer = PortalDrawerView(
+        drawer = existingDrawer ?: PortalDrawerView(
             context = parent.context,
             desktopPortalUrl = state?.portalUrl,
             localPortalUrl = state?.localPortalUrl,
             onSwipeBack = { hidePortalDrawer(parent, drawer) },
         ).apply {
             tag = PortalDrawerTag
-            translationX = parent.width.toFloat()
-            elevation = parent.context.dp(12).toFloat()
             attachSwipeBackBehavior(parent, consumeEvents = true)
         }
+        drawer.apply {
+            springMotion.cancel()
+            visibility = View.VISIBLE
+            alpha = 0f
+            scaleX = ExpandedSurfaceHiddenScale
+            scaleY = ExpandedSurfaceHiddenScale
+            translationY = parent.context.dp(18).toFloat()
+            pivotX = expandedX - surfaceHorizontalMargin + button.width / 2f
+            pivotY = 0f
+        }
 
+        parent.findTaggedChild(PortalDismissLayerTag)?.let { parent.removeView(it) }
+        val dismissLayer = View(parent.context).apply {
+            tag = PortalDismissLayerTag
+            alpha = 0f
+            isClickable = true
+            isFocusable = false
+            setBackgroundColor(ExpandedBackdropTintColor)
+            setOnClickListener { hidePortalDrawer(parent, drawer) }
+        }
         parent.addView(
-            drawer,
+            dismissLayer,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ),
         )
-        drawer.animate()
-            .translationX(0f)
-            .setDuration(220L)
+        val drawerLayoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            surfaceHeight,
+        ).apply {
+            topMargin = surfaceTopMargin
+            leftMargin = surfaceHorizontalMargin
+            rightMargin = surfaceHorizontalMargin
+        }
+        if (existingDrawer == null) {
+            parent.addView(drawer, drawerLayoutParams)
+        } else {
+            drawer.layoutParams = drawerLayoutParams
+            drawer.bringToFront()
+        }
+        drawer.springMotion.springAlphaTo(1f)
+        drawer.springMotion.springScaleTo(1f)
+        drawer.springMotion.springTranslationYTo(0f)
+        dismissLayer.animate()
+            .alpha(1f)
+            .setDuration(120L)
             .start()
+        button.springMotion.springPositionTo(expandedX, expandedY)
+        button.bringToFront()
     }
 
     private fun View.attachSwipeBackBehavior(parent: FrameLayout, consumeEvents: Boolean) {
         val swipeThreshold = context.dp(80)
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         var downRawX = 0f
         var downRawY = 0f
+        var dragging = false
+        var velocityTracker: VelocityTracker? = null
 
         setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    (view as? PortalDrawerView)?.springMotion?.cancel()
                     downRawX = event.rawX
                     downRawY = event.rawY
-                    consumeEvents
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    val dx = event.rawX - downRawX
-                    val dy = event.rawY - downRawY
-                    if (dx > swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
-                        hidePortalDrawer(parent, parent.findTaggedChild(PortalDrawerTag) ?: view)
+                    dragging = false
+                    velocityTracker = VelocityTracker.obtain().apply {
+                        addMovement(event)
                     }
                     consumeEvents
                 }
 
-                MotionEvent.ACTION_CANCEL -> consumeEvents
+                MotionEvent.ACTION_MOVE -> {
+                    velocityTracker?.addMovement(event)
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (!dragging && dx > touchSlop && abs(dx) > abs(dy)) {
+                        dragging = true
+                    }
+                    if (dragging) {
+                        (view as? PortalDrawerView)?.let { drawer ->
+                            setExpandedSurfaceDismissProgress(
+                                drawer = drawer,
+                                progress = dx.coerceAtLeast(0f) / parent.width.coerceAtLeast(1),
+                            )
+                        }
+                        true
+                    } else {
+                        consumeEvents
+                    }
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    velocityTracker?.addMovement(event)
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val xVelocity = velocityTracker?.xVelocity ?: 0f
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (
+                        (dragging && ((1f - view.alpha) * parent.width > swipeThreshold || xVelocity > context.dp(700))) ||
+                        (dx > swipeThreshold && abs(dx) > abs(dy))
+                    ) {
+                        hidePortalDrawer(parent, parent.findTaggedChild(PortalDrawerTag) ?: view)
+                    } else if (dragging) {
+                        (view as? PortalDrawerView)?.springOpenSurface()
+                    }
+                    dragging || consumeEvents
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    if (dragging) {
+                        (view as? PortalDrawerView)?.springOpenSurface()
+                    }
+                    dragging || consumeEvents
+                }
                 else -> consumeEvents
             }
         }
     }
 
     private fun hidePortalDrawer(parent: FrameLayout, drawer: View) {
-        drawer.animate()
-            .translationX(parent.width.toFloat())
-            .setDuration(200L)
-            .withEndAction {
-                (drawer as? PortalDrawerView)?.destroyWebView()
-                parent.removeView(drawer)
+        val button = parent.findTaggedChild(PortalButtonTag) as? PortalFloatingButton
+        val dismissLayer = parent.findTaggedChild(PortalDismissLayerTag)
+        val endAction = {
+            if (drawer.parent === parent) {
+                drawer.visibility = View.GONE
             }
-            .start()
+            dismissLayer?.let { layer ->
+                if (layer.parent === parent) parent.removeView(layer)
+            }
+            button?.isExpanded = false
+        }
+        button?.let {
+            it.springMotion.springPositionTo(it.minimizedX, it.minimizedY)
+        }
+        dismissLayer?.animate()
+            ?.alpha(0f)
+            ?.setDuration(140L)
+            ?.start()
+        (drawer as? PortalDrawerView)?.springCloseSurface(onEnd = endAction)
+            ?: run {
+                drawer.animate()
+                    .alpha(0f)
+                    .setDuration(180L)
+                    .withEndAction(endAction)
+                    .start()
+            }
     }
 
-    private fun snapButtonToEdge(parent: FrameLayout, button: View) {
+    private fun snapButtonToEdge(
+        parent: FrameLayout,
+        button: View,
+        motion: SpringyViewMotion,
+        initialVelocityX: Float = 0f,
+        initialVelocityY: Float = 0f,
+    ) {
         val margin = parent.context.dp(12)
-        val targetX = if (button.x + button.width / 2f < parent.width / 2f) {
+        val movingTowardRight = initialVelocityX > parent.context.dp(180)
+        val movingTowardLeft = initialVelocityX < -parent.context.dp(180)
+        val targetRight = (button.x + button.width / 2f >= parent.width / 2f && !movingTowardLeft) || movingTowardRight
+        val targetX = if (!targetRight) {
             (parent.paddingLeft + margin).toFloat()
         } else {
             (parent.width - parent.paddingRight - button.width - margin).toFloat()
         }.coerceXInParent(parent, button.width, margin)
         val targetY = button.y.coerceYInParent(parent, button.height, margin)
-        button.animate()
-            .x(targetX)
-            .y(targetY)
-            .setDuration(180L)
-            .start()
+        motion.springPositionTo(targetX, targetY, initialVelocityX, initialVelocityY)
+    }
+
+    private fun setExpandedSurfaceDismissProgress(drawer: PortalDrawerView, progress: Float) {
+        val clamped = progress.coerceIn(0f, 1f)
+        drawer.alpha = 1f - clamped
+        val scale = 1f - ((1f - ExpandedSurfaceHiddenScale) * clamped)
+        drawer.scaleX = scale
+        drawer.scaleY = scale
+        drawer.translationY = drawer.context.dp(18) * clamped
+    }
+
+    private fun PortalDrawerView.springOpenSurface() {
+        springMotion.springAlphaTo(1f)
+        springMotion.springScaleTo(1f)
+        springMotion.springTranslationYTo(0f)
+    }
+
+    private fun PortalDrawerView.springCloseSurface(onEnd: () -> Unit) {
+        springMotion.springAlphaTo(0f)
+        springMotion.springScaleTo(ExpandedSurfaceHiddenScale)
+        springMotion.springTranslationYTo(context.dp(18).toFloat(), onEnd = onEnd)
     }
 
     private fun ViewGroup.findTaggedChild(tag: Any): View? {
@@ -483,9 +697,26 @@ object PortalAppInspector {
     }
 
     private fun Float.coerceYInParent(parent: ViewGroup, childHeight: Int, margin: Int = 0): Float {
-        val min = (parent.paddingTop + margin).toFloat()
-        val max = (parent.height - parent.paddingBottom - childHeight - margin).toFloat()
+        val topInset = (parent as? FrameLayout)?.topSystemInset() ?: parent.paddingTop
+        val bottomInset = (parent as? FrameLayout)?.bottomSystemInset() ?: parent.paddingBottom
+        val min = (topInset + margin).toFloat()
+        val max = (parent.height - bottomInset - childHeight - margin).toFloat()
         return if (max <= min) min else coerceIn(min, max)
+    }
+
+    private fun FrameLayout.topSystemInset(): Int =
+        paddingTop.takeIf { it > 0 }
+            ?: rootWindowInsets?.systemBarInsets()?.top?.takeIf { it > 0 }
+            ?: context.statusBarHeight()
+
+    private fun FrameLayout.bottomSystemInset(): Int =
+        paddingBottom.takeIf { it > 0 }
+            ?: rootWindowInsets?.systemBarInsets()?.bottom?.takeIf { it > 0 }
+            ?: 0
+
+    private fun Context.statusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
     }
 
     private data class SystemBarInsets(
@@ -495,18 +726,213 @@ object PortalAppInspector {
         val bottom: Int,
     )
 
+    private const val ExpandedSurfaceHiddenScale = 0.96f
+    private val ExpandedBackdropTintColor = Color.argb(68, 15, 23, 42)
+
+    private class SpringyViewMotion(private val view: View) : Choreographer.FrameCallback {
+        var onUpdate: (() -> Unit)? = null
+
+        private val choreographer = Choreographer.getInstance()
+        private val axes = mutableMapOf<SpringProperty, SpringAxis>()
+        private var running = false
+        private var lastFrameNanos = 0L
+        private var endAction: (() -> Unit)? = null
+
+        fun springPositionTo(
+            targetX: Float,
+            targetY: Float,
+            velocityX: Float = 0f,
+            velocityY: Float = 0f,
+            onEnd: (() -> Unit)? = null,
+        ) {
+            putAxis(SpringProperty.X, targetX, velocityX, PositionSpringConfig)
+            putAxis(SpringProperty.Y, targetY, velocityY, PositionSpringConfig)
+            start(onEnd)
+        }
+
+        fun springTranslationYTo(
+            target: Float,
+            velocity: Float = 0f,
+            onEnd: (() -> Unit)? = null,
+        ) {
+            putAxis(SpringProperty.TranslationY, target, velocity, DrawerSpringConfig)
+            start(onEnd)
+        }
+
+        fun springAlphaTo(
+            target: Float,
+            velocity: Float = 0f,
+            onEnd: (() -> Unit)? = null,
+        ) {
+            putAxis(SpringProperty.Alpha, target, velocity, AlphaSpringConfig)
+            start(onEnd)
+        }
+
+        fun springScaleTo(target: Float) {
+            putAxis(SpringProperty.Scale, target, 0f, ScaleSpringConfig)
+            start()
+        }
+
+        fun cancel() {
+            axes.clear()
+            endAction = null
+            if (running) {
+                choreographer.removeFrameCallback(this)
+            }
+            running = false
+            lastFrameNanos = 0L
+        }
+
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!running) return
+            val dt = if (lastFrameNanos == 0L) {
+                1f / 60f
+            } else {
+                ((frameTimeNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
+            }
+            lastFrameNanos = frameTimeNanos
+
+            val iterator = axes.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                val axis = entry.value
+                val displacement = axis.value - axis.target
+                val acceleration = -axis.config.stiffness * displacement - axis.config.damping * axis.velocity
+                axis.velocity += acceleration * dt
+                axis.value += axis.velocity * dt
+
+                if (abs(axis.target - axis.value) < axis.config.restDistance && abs(axis.velocity) < axis.config.restVelocity) {
+                    axis.value = axis.target
+                    axis.velocity = 0f
+                    iterator.remove()
+                }
+                entry.key.write(view, axis.value)
+            }
+
+            onUpdate?.invoke()
+            if (axes.isEmpty()) {
+                running = false
+                lastFrameNanos = 0L
+                endAction?.invoke()
+                endAction = null
+            } else {
+                choreographer.postFrameCallback(this)
+            }
+        }
+
+        private fun putAxis(
+            property: SpringProperty,
+            target: Float,
+            velocity: Float,
+            config: SpringConfig,
+        ) {
+            axes[property] = SpringAxis(
+                value = property.read(view),
+                target = target,
+                velocity = velocity,
+                config = config,
+            )
+        }
+
+        private fun start(onEnd: (() -> Unit)? = null) {
+            if (onEnd != null) {
+                endAction = onEnd
+            }
+            if (!running) {
+                running = true
+                lastFrameNanos = 0L
+                choreographer.postFrameCallback(this)
+            }
+        }
+    }
+
+    private enum class SpringProperty {
+        X,
+        Y,
+        TranslationY,
+        Alpha,
+        Scale;
+
+        fun read(view: View): Float =
+            when (this) {
+                X -> view.x
+                Y -> view.y
+                TranslationY -> view.translationY
+                Alpha -> view.alpha
+                Scale -> view.scaleX
+            }
+
+        fun write(view: View, value: Float) {
+            when (this) {
+                X -> view.x = value
+                Y -> view.y = value
+                TranslationY -> view.translationY = value
+                Alpha -> view.alpha = value.coerceIn(0f, 1f)
+                Scale -> {
+                    view.scaleX = value
+                    view.scaleY = value
+                }
+            }
+        }
+    }
+
+    private data class SpringAxis(
+        var value: Float,
+        var target: Float,
+        var velocity: Float,
+        val config: SpringConfig,
+    )
+
+    private data class SpringConfig(
+        val stiffness: Float,
+        val damping: Float,
+        val restDistance: Float,
+        val restVelocity: Float,
+    )
+
+    private val PositionSpringConfig = SpringConfig(
+        stiffness = 620f,
+        damping = 34f,
+        restDistance = 0.5f,
+        restVelocity = 8f,
+    )
+    private val DrawerSpringConfig = SpringConfig(
+        stiffness = 520f,
+        damping = 35f,
+        restDistance = 0.75f,
+        restVelocity = 10f,
+    )
+    private val ScaleSpringConfig = SpringConfig(
+        stiffness = 760f,
+        damping = 32f,
+        restDistance = 0.002f,
+        restVelocity = 0.02f,
+    )
+    private val AlphaSpringConfig = SpringConfig(
+        stiffness = 680f,
+        damping = 36f,
+        restDistance = 0.004f,
+        restVelocity = 0.04f,
+    )
+
     private class PortalDrawerView(
         context: Context,
         desktopPortalUrl: String?,
         localPortalUrl: String?,
         onSwipeBack: () -> Unit,
     ) : FrameLayout(context) {
+        val springMotion = SpringyViewMotion(this)
         private var webView: WebView? = null
 
         init {
             isClickable = true
             isFocusable = true
-            setBackgroundColor(Color.rgb(248, 250, 252))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = context.dp(18).toFloat()
+                setColor(Color.rgb(248, 250, 252))
+            }
+            clipToOutline = true
 
             addView(
                 createEntryPanel(
@@ -529,6 +955,11 @@ object PortalAppInspector {
                 destroy()
             }
             webView = null
+        }
+
+        override fun onDetachedFromWindow() {
+            destroyWebView()
+            super.onDetachedFromWindow()
         }
 
         private fun showWebView(portalUrl: String, onSwipeBack: () -> Unit) {
@@ -779,21 +1210,69 @@ object PortalAppInspector {
 
         private fun View.attachWebViewSwipeBack(onSwipeBack: () -> Unit) {
             val swipeThreshold = context.dp(80)
+            val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
             var downRawX = 0f
             var downRawY = 0f
+            var dragging = false
+            var velocityTracker: VelocityTracker? = null
 
-            setOnTouchListener { _, event ->
+            setOnTouchListener { view, event ->
+                val drawer = view.parent as? PortalDrawerView
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        drawer?.springMotion?.cancel()
                         downRawX = event.rawX
                         downRawY = event.rawY
+                        dragging = false
+                        velocityTracker = VelocityTracker.obtain().apply {
+                            addMovement(event)
+                        }
+                    }
+
+                    MotionEvent.ACTION_MOVE -> {
+                        velocityTracker?.addMovement(event)
+                        val dx = event.rawX - downRawX
+                        val dy = event.rawY - downRawY
+                        if (!dragging && dx > touchSlop && abs(dx) > abs(dy)) {
+                            dragging = true
+                        }
+                        if (dragging) {
+                            drawer?.let {
+                                setExpandedSurfaceDismissProgress(
+                                    drawer = it,
+                                    progress = dx.coerceAtLeast(0f) / it.width.coerceAtLeast(1),
+                                )
+                            }
+                            return@setOnTouchListener true
+                        }
                     }
 
                     MotionEvent.ACTION_UP -> {
+                        velocityTracker?.addMovement(event)
+                        velocityTracker?.computeCurrentVelocity(1000)
+                        val xVelocity = velocityTracker?.xVelocity ?: 0f
+                        velocityTracker?.recycle()
+                        velocityTracker = null
                         val dx = event.rawX - downRawX
                         val dy = event.rawY - downRawY
-                        if (dx > swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                        if (
+                            (dragging && ((1f - (drawer?.alpha ?: 1f)) * (drawer?.width ?: 0) > swipeThreshold || xVelocity > context.dp(700))) ||
+                            (dx > swipeThreshold && abs(dx) > abs(dy))
+                        ) {
                             onSwipeBack()
+                            return@setOnTouchListener true
+                        } else if (dragging) {
+                            drawer?.springOpenSurface()
+                            return@setOnTouchListener true
+                        }
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        velocityTracker?.recycle()
+                        velocityTracker = null
+                        if (dragging) {
+                            drawer?.springOpenSurface()
+                            return@setOnTouchListener true
                         }
                     }
                 }
@@ -803,6 +1282,10 @@ object PortalAppInspector {
     }
 
     private class PortalFloatingButton(context: Context) : View(context) {
+        val springMotion = SpringyViewMotion(this)
+        var minimizedX = 0f
+        var minimizedY = 0f
+        var isExpanded = false
         private val mark = PortalMarkPainter()
 
         init {
@@ -925,6 +1408,8 @@ object PortalAppInspector {
                         PortalHealth(
                             ok = true,
                             sourceName = runtime.sourceName,
+                            sourcePackageName = runtime.sourcePackageName,
+                            appName = runtime.appName,
                             protocolVersion = PortalProtocol.Version,
                         )
                     )
@@ -934,6 +1419,9 @@ object PortalAppInspector {
                         PortalManifest(
                             protocolVersion = PortalProtocol.Version,
                             sourceName = runtime.sourceName,
+                            sourcePackageName = runtime.sourcePackageName,
+                            appName = runtime.appName,
+                            appIconPngBase64 = runtime.appIconPngBase64,
                             plugins = runtime.plugins.values
                                 .sortedBy { it.id }
                                 .map { plugin ->
@@ -1109,16 +1597,55 @@ object PortalAppInspector {
             .build()
     }
 
+    private fun Context.portalAppName(): String =
+        runCatching {
+            val label = packageManager.getApplicationLabel(applicationInfo).toString()
+            label.ifBlank { packageName }
+        }.getOrDefault(packageName)
+
+    private fun Context.portalAppIconPngBase64(): String? =
+        runCatching {
+            val icon = packageManager.getApplicationIcon(packageName)
+            val density = resources.displayMetrics.density
+            val size = (48f * density + 0.5f).toInt().coerceAtLeast(48)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawAppIconSquare(icon, size)
+            ByteArrayOutputStream().use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
+                Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+            }
+        }.getOrNull()
+
+    private fun Canvas.drawAppIconSquare(icon: Drawable, size: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && icon is AdaptiveIconDrawable) {
+            icon.background?.let { drawable ->
+                drawable.setBounds(0, 0, size, size)
+                drawable.draw(this)
+            }
+            icon.foreground?.let { drawable ->
+                drawable.setBounds(0, 0, size, size)
+                drawable.draw(this)
+            }
+        } else {
+            icon.setBounds(0, 0, size, size)
+            icon.draw(this)
+        }
+    }
+
     private data class PortalRuntimeState(
         val context: Context,
         val sourceName: String,
+        val sourcePackageName: String,
+        val appName: String,
+        val appIconPngBase64: String?,
         val host: String,
         val port: Int,
         val plugins: Map<String, PortalPlugin>,
     ) {
         val portalUrl: String =
-            "$PortalUrlBase?host=$host&port=$port"
+            "$PortalUrlBase?host=$host&port=$port&mobileView=true"
         val localPortalUrl: String =
-            "$PortalUrlBase?host=localhost&port=$port"
+            "$PortalUrlBase?host=localhost&port=$port&mobileView=true"
     }
 }

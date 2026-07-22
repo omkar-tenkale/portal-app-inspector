@@ -47,6 +47,9 @@ data class PortalRpcBatchResponse(
 data class PortalManifest(
     val protocolVersion: Int,
     val sourceName: String,
+    val sourcePackageName: String,
+    val appName: String,
+    val appIconPngBase64: String? = null,
     val plugins: List<PortalPluginManifest>,
 )
 
@@ -61,6 +64,8 @@ data class PortalPluginManifest(
 data class PortalHealth(
     val ok: Boolean,
     val sourceName: String,
+    val sourcePackageName: String,
+    val appName: String,
     val protocolVersion: Int,
 )
 

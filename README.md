@@ -6,6 +6,7 @@ The v1 scaffold contains:
 
 - `:lib`: source runtime and protocol.
 - `:plugins:files`: official files browsing plugin.
+- `:plugins:network`: official Retrofit network traffic plugin.
 - `:app`: Compose/Wasm Portal web UI.
 - `:demo`: Android demo app.
 
@@ -16,6 +17,7 @@ Apps include the runtime and only the plugins they need:
 ```kotlin
 debugImplementation("io.github.portalappinspector:lib:<version>")
 debugImplementation("io.github.portalappinspector.plugins:files:<version>")
+debugImplementation("io.github.portalappinspector.plugins:network:<version>")
 ```
 
 In this repo, the demo app uses project dependencies:
@@ -23,6 +25,7 @@ In this repo, the demo app uses project dependencies:
 ```kotlin
 debugImplementation(project(":lib"))
 debugImplementation(project(":plugins:files"))
+debugImplementation(project(":plugins:network"))
 ```
 
 The Android runtime auto-starts from a ContentProvider, starts a local Ktor server,

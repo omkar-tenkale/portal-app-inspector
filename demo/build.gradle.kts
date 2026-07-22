@@ -36,7 +36,13 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.runtime)
     implementation(libs.compose.ui)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
 
     debugImplementation(project(":lib"))
     debugImplementation(project(":plugins:files"))
+    debugImplementation(project(":plugins:network"))
+    debugImplementation("io.github.openflocon:flocon:1.8.3")
+    debugImplementation("io.github.openflocon:flocon-okhttp-interceptor:1.8.3")
 }
