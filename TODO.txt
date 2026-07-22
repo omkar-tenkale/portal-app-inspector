@@ -1,0 +1,8 @@
+Plugin Ideas
+- Drop file
+- Shared Pref
+- Jank stats
+- Analytics
+- Feature flags
+- Fake location
+-
