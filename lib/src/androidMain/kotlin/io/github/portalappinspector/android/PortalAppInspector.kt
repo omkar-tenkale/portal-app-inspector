@@ -52,36 +52,26 @@ import io.github.portalappinspector.PortalProtocol
 import io.github.portalappinspector.PortalRpcBatchRequest
 import io.github.portalappinspector.PortalRpcBatchResponse
 import io.github.portalappinspector.portalPluginErrorResponse
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpMethod
-import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.call
-import io.ktor.server.application.install
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.plugins.cors.routing.CORS
-import io.ktor.server.request.receive
-import io.ktor.server.response.respond
-import io.ktor.server.routing.get
-import io.ktor.server.routing.post
-import io.ktor.server.routing.routing
+import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import top.canyie.pine.Pine
 import top.canyie.pine.PineConfig
 import top.canyie.pine.callback.MethodHook
+import java.io.ByteArrayOutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
-import java.io.ByteArrayOutputStream
+import java.net.URLEncoder
 import java.util.ServiceLoader
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -92,8 +82,8 @@ object PortalAppInspector {
     private const val RequestTimeoutMillis = 5_000L
     private const val NotificationId = 4896
     private const val NotificationChannelId = "portal_app_inspector"
-    private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
-//    private const val PortalUrlBase = "http://10.0.2.2:8081/connect"
+//    private const val PortalUrlBase = "https://omkar-tenkale.github.io/portal-app-inspector/connect"
+    private const val PortalUrlBase = "http://10.0.2.2:8080/connect"
     private const val LogTag = "PortalAppInspector"
     private const val OverlayTag = "portal_app_inspector_overlay"
     private const val PortalButtonTag = "portal_app_inspector_button"
@@ -102,6 +92,7 @@ object PortalAppInspector {
     private const val PortalPermissionPromptTag = "portal_app_inspector_permission_prompt"
     private const val NotificationPermissionRequestCode = 4896
     private const val NotificationPermissionPollMillis = 500L
+    private const val JsonMimeType = "application/json"
 
     private val started = AtomicBoolean(false)
     private val runtimeStarted = AtomicBoolean(false)
@@ -109,6 +100,10 @@ object PortalAppInspector {
     private val notificationPermissionPolling = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     private var server: Any? = null
     private var state: PortalRuntimeState? = null
@@ -664,11 +659,14 @@ object PortalAppInspector {
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     private fun FrameLayout.applyInitialSystemBarPadding(source: View) {
-        val insets = rootWindowInsets ?: source.rootWindowInsets ?: return
+        val insets = currentRootWindowInsets() ?: source.currentRootWindowInsets() ?: return
         val systemBars = insets.systemBarInsets()
         setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
         clipToPadding = false
     }
+
+    private fun View.currentRootWindowInsets(): WindowInsets? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) rootWindowInsets else null
 
     @Suppress("DEPRECATION")
     private fun WindowInsets.systemBarInsets(): SystemBarInsets =
@@ -706,12 +704,12 @@ object PortalAppInspector {
 
     private fun FrameLayout.topSystemInset(): Int =
         paddingTop.takeIf { it > 0 }
-            ?: rootWindowInsets?.systemBarInsets()?.top?.takeIf { it > 0 }
+            ?: currentRootWindowInsets()?.systemBarInsets()?.top?.takeIf { it > 0 }
             ?: context.statusBarHeight()
 
     private fun FrameLayout.bottomSystemInset(): Int =
         paddingBottom.takeIf { it > 0 }
-            ?: rootWindowInsets?.systemBarInsets()?.bottom?.takeIf { it > 0 }
+            ?: currentRootWindowInsets()?.systemBarInsets()?.bottom?.takeIf { it > 0 }
             ?: 0
 
     private fun Context.statusBarHeight(): Int {
@@ -1388,23 +1386,12 @@ object PortalAppInspector {
         service.startForeground(NotificationId, notification)
     }
 
-    private fun startServer(runtime: PortalRuntimeState) =
-        embeddedServer(CIO, host = "0.0.0.0", port = runtime.port) {
-            install(ContentNegotiation) {
-                json(Json {
-                    ignoreUnknownKeys = true
-                    encodeDefaults = true
-                })
-            }
-            install(CORS) {
-                anyHost()
-                allowMethod(HttpMethod.Get)
-                allowMethod(HttpMethod.Post)
-                allowHeader(HttpHeaders.ContentType)
-            }
-            routing {
-                get("/portal/health") {
-                    call.respond(
+    private fun startServer(runtime: PortalRuntimeState): NanoHTTPD =
+        object : NanoHTTPD("0.0.0.0", runtime.port) {
+            override fun serve(session: IHTTPSession): Response =
+                when {
+                    session.method == Method.OPTIONS -> emptyResponse(Response.Status.OK)
+                    session.method == Method.GET && session.uri == "/portal/health" -> jsonResponse(
                         PortalHealth(
                             ok = true,
                             sourceName = runtime.sourceName,
@@ -1413,9 +1400,7 @@ object PortalAppInspector {
                             protocolVersion = PortalProtocol.Version,
                         )
                     )
-                }
-                get("/portal/manifest") {
-                    call.respond(
+                    session.method == Method.GET && session.uri == "/portal/manifest" -> jsonResponse(
                         PortalManifest(
                             protocolVersion = PortalProtocol.Version,
                             sourceName = runtime.sourceName,
@@ -1433,19 +1418,50 @@ object PortalAppInspector {
                                 },
                         )
                     )
+                    session.method == Method.POST && session.uri == "/portal/rpc" -> rpcResponse(runtime, session)
+                    else -> emptyResponse(Response.Status.NOT_FOUND)
                 }
-                post("/portal/rpc") {
-                    val batch = runCatching { call.receive<PortalRpcBatchRequest>() }.getOrElse {
-                        call.respond(HttpStatusCode.BadRequest)
-                        return@post
-                    }
-                    val responses = batch.requests.map { request ->
-                        async { runtime.dispatch(request) }
-                    }.awaitAll()
-                    call.respond(PortalRpcBatchResponse(responses))
-                }
-            }
-        }.start(wait = false)
+        }.apply {
+            start(SOCKET_READ_TIMEOUT, false)
+        }
+
+    private fun rpcResponse(runtime: PortalRuntimeState, session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
+        val batch = runCatching {
+            val body = mutableMapOf<String, String>()
+            session.parseBody(body)
+            json.decodeFromString<PortalRpcBatchRequest>(body["postData"].orEmpty())
+        }.getOrElse {
+            return emptyResponse(NanoHTTPD.Response.Status.BAD_REQUEST)
+        }
+
+        val responses = runBlocking {
+            batch.requests.map { request ->
+                async { runtime.dispatch(request) }
+            }.awaitAll()
+        }
+        return jsonResponse(PortalRpcBatchResponse(responses))
+    }
+
+    private inline fun <reified T> jsonResponse(body: T): NanoHTTPD.Response =
+        newCorsResponse(
+            status = NanoHTTPD.Response.Status.OK,
+            mimeType = JsonMimeType,
+            body = json.encodeToString(body),
+        )
+
+    private fun emptyResponse(status: NanoHTTPD.Response.Status): NanoHTTPD.Response =
+        newCorsResponse(status = status, mimeType = NanoHTTPD.MIME_PLAINTEXT, body = "")
+
+    private fun newCorsResponse(
+        status: NanoHTTPD.Response.Status,
+        mimeType: String,
+        body: String,
+    ): NanoHTTPD.Response =
+        NanoHTTPD.newFixedLengthResponse(status, mimeType, body).apply {
+            addHeader("Access-Control-Allow-Origin", "*")
+            addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            addHeader("Access-Control-Allow-Headers", "Content-Type")
+        }
 
     @Suppress("DEPRECATION")
     private fun acquireRuntimeLocks(context: Context) {
@@ -1644,8 +1660,11 @@ object PortalAppInspector {
         val plugins: Map<String, PortalPlugin>,
     ) {
         val portalUrl: String =
-            "$PortalUrlBase?host=$host&port=$port&mobileView=true"
+            "$PortalUrlBase?host=$host&port=$port&mobileView=true&sourcePackageName=${sourcePackageName.portalUrlEncoded()}"
         val localPortalUrl: String =
-            "$PortalUrlBase?host=localhost&port=$port&mobileView=true"
+            "$PortalUrlBase?host=localhost&port=$port&mobileView=true&sourcePackageName=${sourcePackageName.portalUrlEncoded()}"
     }
+
+    private fun String.portalUrlEncoded(): String =
+        URLEncoder.encode(this, "UTF-8")
 }

@@ -19,7 +19,7 @@ kotlin {
         minSdk = libs.versions.android.minSdk.get().toInt()
 
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_11
+            jvmTarget = JvmTarget.JVM_1_8
         }
         androidResources {
             enable = true
@@ -32,12 +32,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
         }
         androidMain.dependencies {
-            implementation(libs.ktor.server.cio)
-            implementation(libs.ktor.server.content.negotiation)
-            implementation(libs.ktor.server.core)
-            implementation(libs.ktor.server.cors)
-            implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.nanohttpd)
             implementation(libs.pine.core)
         }
     }

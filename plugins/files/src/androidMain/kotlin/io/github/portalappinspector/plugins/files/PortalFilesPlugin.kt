@@ -1,5 +1,6 @@
 package io.github.portalappinspector.plugins.files
 
+import android.util.Base64
 import io.github.portalappinspector.PortalPlugin
 import io.github.portalappinspector.PortalPluginRequest
 import io.github.portalappinspector.PortalPluginResponse
@@ -30,6 +31,18 @@ class PortalFilesPlugin : PortalPlugin {
                 val path = request.payload["path"]?.jsonPrimitive?.contentOrNull
                     ?: return portalPluginErrorResponse(request, "missing_path", "listChildren requires path.")
                 success(request, listChildrenPayload(path))
+            }
+            "readFile" -> {
+                val path = request.payload["path"]?.jsonPrimitive?.contentOrNull
+                    ?: return portalPluginErrorResponse(request, "missing_path", "readFile requires path.")
+                readFilePayload(path)?.let { success(request, it) }
+                    ?: portalPluginErrorResponse(request, "invalid_path", "Unknown, unsafe, unreadable, or non-file path.")
+            }
+            "deletePath" -> {
+                val path = request.payload["path"]?.jsonPrimitive?.contentOrNull
+                    ?: return portalPluginErrorResponse(request, "missing_path", "deletePath requires path.")
+                deletePathPayload(path)?.let { success(request, it) }
+                    ?: portalPluginErrorResponse(request, "invalid_path", "Unknown, unsafe, or root path.")
             }
             else -> portalPluginErrorResponse(request, "unknown_operation", "Unknown files operation: $operation")
         }
@@ -77,18 +90,53 @@ class PortalFilesPlugin : PortalPlugin {
         }.toJsonArray())
     }
 
+    private fun readFilePayload(path: String): kotlinx.serialization.json.JsonObject? {
+        val (_, file) = resolveLogicalTarget(path) ?: return null
+        if (!file.isFile || !file.canRead()) return null
+        return buildJsonObject {
+            put("type", "readFileResult")
+            put("name", file.name)
+            put("path", path)
+            put("base64", Base64.encodeToString(file.readBytes(), Base64.NO_WRAP))
+            put("sizeBytes", file.length())
+        }
+    }
+
+    private fun deletePathPayload(path: String): kotlinx.serialization.json.JsonObject? {
+        val (root, file) = resolveLogicalTarget(path) ?: return null
+        if (file.canonicalFile == root.file.canonicalFile) return null
+        val deleted = file.deleteRecursively()
+        return buildJsonObject {
+            put("type", "deletePathResult")
+            put("path", path)
+            put("deleted", deleted)
+        }
+    }
+
     private fun roots(): List<PortalFileRoot> {
         val context = PortalAndroidContext.requireApplicationContext()
         return listOfNotNull(
             PortalFileRoot("app-files", "App files", context.filesDir),
             PortalFileRoot("app-cache", "App cache", context.cacheDir),
             PortalFileRoot("app-no-backup", "No backup", context.noBackupFilesDir),
+            File(context.applicationInfo.dataDir, "shared_prefs")
+                .takeIf { it.isDirectory }
+                ?.let { PortalFileRoot("shared-prefs", "Shared preferences", it) },
             context.getExternalFilesDir(null)?.let { PortalFileRoot("external-files", "External files", it) },
             context.externalCacheDir?.let { PortalFileRoot("external-cache", "External cache", it) },
         )
     }
 
     private fun resolveLogicalPath(path: String): Pair<PortalFileRoot, File>? {
+        val (root, targetCanonical) = resolveLogicalTarget(path) ?: return null
+        return if (targetCanonical.isDirectory) {
+            root to targetCanonical
+        } else {
+            null
+        }
+    }
+
+    private fun resolveLogicalTarget(path: String): Pair<PortalFileRoot, File>? {
         val separator = path.indexOf(":/")
         if (separator <= 0) return null
 
@@ -102,7 +150,7 @@ class PortalFilesPlugin : PortalPlugin {
         val rootPath = rootCanonical.path
         val targetPath = targetCanonical.path
         val insideRoot = targetPath == rootPath || targetPath.startsWith("$rootPath${File.separator}")
-        return if (insideRoot && targetCanonical.isDirectory) {
+        return if (insideRoot) {
             root to targetCanonical
         } else {
             null
@@ -130,6 +178,7 @@ class PortalFilesPlugin : PortalPlugin {
     ) = buildJsonObject {
         put("name", name)
         put("path", path)
+        put("absolutePath", file.canonicalFile.path)
         put("directory", directory)
         if (directory) {
             put("sizeBytes", JsonNull)

@@ -5,4 +5,8 @@ Plugin Ideas
 - Analytics
 - Feature flags
 - Fake location
--
+- Gson parsing tool
+
+
+Utilities
+- Copy as image, copy as text buttons everywhere
