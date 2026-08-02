@@ -2,6 +2,7 @@ package io.github.portalappinspector.app.data
 
 internal const val NetworkPluginId = "portal-network"
 internal const val LogsPluginId = "portal-logs"
+internal const val ScreenMirrorPluginId = "portal-screen-mirror"
 internal const val SharedPrefsPluginId = "portal-shared-prefs"
 
 internal const val LogGapThresholdMillis = 10_000L

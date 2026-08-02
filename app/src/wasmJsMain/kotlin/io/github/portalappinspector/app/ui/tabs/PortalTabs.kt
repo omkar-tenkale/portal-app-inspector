@@ -27,6 +27,10 @@ internal data object LogsTab : PortalTab {
     override val title: String = "Logs"
 }
 
+internal data object ScreenMirrorTab : PortalTab {
+    override val title: String = "Screen Mirror"
+}
+
 internal data class NetworkResponseTab(
     val call: PortalNetworkCall,
 ) : PortalTab {
@@ -51,6 +55,7 @@ internal fun PortalTabIcon(tab: PortalTab, selected: Boolean) {
         FilesTab -> PortalTabIcons.Folder to PortalColors.accent
         NetworkTab -> PortalTabIcons.Network to PortalColors.success
         LogsTab -> PortalTabIcons.Logs to PortalColors.warning
+        ScreenMirrorTab -> PortalTabIcons.ScreenMirror to PortalColors.accent
         is NetworkResponseTab -> PortalTabIcons.Response to PortalColors.text
         is SharedPrefsTab -> PortalTabIcons.SharedPrefs to PortalColors.accent
         is UnsupportedPluginTab -> PortalTabIcons.Unsupported to PortalColors.warning

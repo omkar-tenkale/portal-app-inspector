@@ -104,6 +104,16 @@ internal data class PortalLogCallSite(
     val lineNumber: Int?,
 )
 
+internal data class PortalScreenMirrorFrame(
+    val updatedAtEpochMillis: Long,
+    val base64: String,
+    val mimeType: String,
+    val format: String,
+    val width: Int,
+    val height: Int,
+    val sizeBytes: Long,
+)
+
 internal sealed interface PortalLogRow {
     val key: String
 

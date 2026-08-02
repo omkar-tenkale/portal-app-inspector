@@ -13,6 +13,7 @@ import io.github.portalappinspector.PortalRpcBatchResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -31,6 +32,11 @@ internal class PortalSourceClient {
         }
         install(ContentNegotiation) {
             json(json)
+        }
+    }
+    internal val streamClient = HttpClient {
+        install(WebSockets) {
+            maxFrameSize = Int.MAX_VALUE.toLong()
         }
     }
     internal var nextRequestId = 0

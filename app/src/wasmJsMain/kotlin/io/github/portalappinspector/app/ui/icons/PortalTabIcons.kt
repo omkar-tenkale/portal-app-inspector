@@ -51,6 +51,21 @@ internal object PortalTabIcons {
         )
     }
 
+    val ScreenMirror: ImageVector by lazy {
+        strokeIcon(
+            name = "ScreenMirror",
+            viewportSize = 48f,
+            strokeWidth = 4f,
+            pathData = listOf(
+                "M7 10H41V34H7V10Z",
+                "M18 42H30",
+                "M24 34V42",
+                "M14 17H34",
+                "M14 25H26",
+            ),
+        )
+    }
+
     val Response: ImageVector by lazy {
         strokeIcon(
             name = "Response",
@@ -251,6 +266,19 @@ internal object PortalTabIcons {
                 "M12.5 12H8.5",
                 "M10.0715 21H4C3.44771 21 3 20.5523 3 20V3.5C3 2.94771 3.44771 2.5 4 2.5H20C20.5523 2.5 21 2.94771 21 3.5V8.35835",
                 "M13.5 19L18.75 11.75L21 13.5L15.5 21H13.5V19Z",
+            ),
+        )
+    }
+
+    val SharedPrefsEntry: ImageVector by lazy {
+        strokeIcon(
+            name = "SharedPrefsEntry",
+            viewportSize = 48f,
+            strokeWidth = 4f,
+            pathData = listOf(
+                "M22.8682 24.2982C25.4105 26.7935 26.4138 30.4526 25.4971 33.8863C24.5805 37.32 21.8844 40.0019 18.4325 40.9137C14.9806 41.8256 11.3022 40.8276 8.79375 38.2986C5.02208 34.4141 5.07602 28.2394 8.91499 24.4206C12.754 20.6019 18.9613 20.5482 22.8664 24.3L22.8682 24.2982Z",
+                "M23 24L40 7",
+                "M30.3052 16.9001L35.7337 22.3001L42.0671 16.0001L36.6385 10.6001L30.3052 16.9001Z",
             ),
         )
     }

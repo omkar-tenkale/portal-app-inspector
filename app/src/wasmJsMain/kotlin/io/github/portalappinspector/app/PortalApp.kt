@@ -34,6 +34,7 @@ import io.github.portalappinspector.app.data.*
 import io.github.portalappinspector.app.features.files.*
 import io.github.portalappinspector.app.features.logs.*
 import io.github.portalappinspector.app.features.network.*
+import io.github.portalappinspector.app.features.screenmirror.*
 import io.github.portalappinspector.app.features.sharedprefs.*
 import io.github.portalappinspector.app.ui.*
 import io.github.portalappinspector.app.ui.connection.*
@@ -172,7 +173,7 @@ internal fun PortalApp() {
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         key(layoutRevision) {
-                            val dockTabs = listOf(NetworkTab, LogsTab, FilesTab) + dynamicTabs
+                            val dockTabs = listOf(NetworkTab, LogsTab, ScreenMirrorTab, FilesTab) + dynamicTabs
                             val layoutState = rememberDockState<PortalTab>(
                                 DockPanel(
                                     tabs = dockTabs,
@@ -210,6 +211,13 @@ internal fun PortalApp() {
                                             connection = connection,
                                             client = client,
                                             enabled = manifest?.plugins?.any { it.id == LogsPluginId } == true,
+                                        )
+                                    }
+                                    renderer<ScreenMirrorTab> { _, _ ->
+                                        ScreenMirrorPanel(
+                                            connection = connection,
+                                            client = client,
+                                            enabled = manifest?.plugins?.any { it.id == ScreenMirrorPluginId } == true,
                                         )
                                     }
                                     renderer<NetworkResponseTab> { tab, _ ->

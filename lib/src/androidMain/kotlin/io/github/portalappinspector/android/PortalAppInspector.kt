@@ -51,9 +51,13 @@ import io.github.portalappinspector.PortalPluginResponse
 import io.github.portalappinspector.PortalProtocol
 import io.github.portalappinspector.PortalRpcBatchRequest
 import io.github.portalappinspector.PortalRpcBatchResponse
+import io.github.portalappinspector.PortalStreamRequest
+import io.github.portalappinspector.PortalStreamSink
+import io.github.portalappinspector.PortalStreamingPlugin
 import io.github.portalappinspector.portalPluginErrorResponse
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT
+import fi.iki.elonen.NanoWSD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,6 +72,7 @@ import top.canyie.pine.Pine
 import top.canyie.pine.PineConfig
 import top.canyie.pine.callback.MethodHook
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
@@ -169,6 +174,7 @@ object PortalAppInspector {
     }
 
     private fun installWelcomeOverlay(activity: Activity) {
+        PortalAndroidContext.setCurrentActivity(activity)
         if (Looper.myLooper() == Looper.getMainLooper()) {
             addWelcomeOverlay(activity)
         } else {
@@ -1386,9 +1392,9 @@ object PortalAppInspector {
         service.startForeground(NotificationId, notification)
     }
 
-    private fun startServer(runtime: PortalRuntimeState): NanoHTTPD =
-        object : NanoHTTPD("0.0.0.0", runtime.port) {
-            override fun serve(session: IHTTPSession): Response =
+    private fun startServer(runtime: PortalRuntimeState): NanoWSD =
+        object : NanoWSD("0.0.0.0", runtime.port) {
+            override fun serveHttp(session: IHTTPSession): Response =
                 when {
                     session.method == Method.OPTIONS -> emptyResponse(Response.Status.OK)
                     session.method == Method.GET && session.uri == "/portal/health" -> jsonResponse(
@@ -1421,9 +1427,95 @@ object PortalAppInspector {
                     session.method == Method.POST && session.uri == "/portal/rpc" -> rpcResponse(runtime, session)
                     else -> emptyResponse(Response.Status.NOT_FOUND)
                 }
+
+            override fun openWebSocket(handshake: IHTTPSession): WebSocket =
+                runtime.openPluginWebSocket(handshake)
         }.apply {
             start(SOCKET_READ_TIMEOUT, false)
         }
+
+    private fun PortalRuntimeState.openPluginWebSocket(handshake: NanoHTTPD.IHTTPSession): NanoWSD.WebSocket {
+        val streamRoute = parsePluginStreamRoute(handshake.uri)
+        val stream = streamRoute
+            ?.let { route ->
+                (plugins[route.pluginId] as? PortalStreamingPlugin)?.openStream(
+                    PortalStreamRequest(
+                        path = route.streamPath,
+                        query = handshake.parms.orEmpty(),
+                        headers = handshake.headers.orEmpty(),
+                    ),
+                )
+            }
+
+        return object : NanoWSD.WebSocket(handshake) {
+            override fun onOpen() {
+                if (stream == null) {
+                    closeQuietly(NanoWSD.WebSocketFrame.CloseCode.PolicyViolation, "Unknown stream.")
+                    return
+                }
+                val socket = this
+                stream.onOpen(
+                    object : PortalStreamSink {
+                        override fun sendText(message: String) {
+                            runCatching { socket.send(message) }
+                        }
+
+                        override fun sendBinary(bytes: ByteArray) {
+                            runCatching { socket.send(bytes) }
+                        }
+
+                        override fun close() {
+                            runCatching {
+                                socket.close(NanoWSD.WebSocketFrame.CloseCode.NormalClosure, "", false)
+                            }
+                        }
+                    },
+                )
+            }
+
+            override fun onClose(
+                code: NanoWSD.WebSocketFrame.CloseCode?,
+                reason: String?,
+                initiatedByRemote: Boolean,
+            ) {
+                stream?.onClose()
+            }
+
+            override fun onMessage(message: NanoWSD.WebSocketFrame) {
+                if (stream == null) return
+                when (message.opCode) {
+                    NanoWSD.WebSocketFrame.OpCode.Text -> stream.onText(message.textPayload)
+                    NanoWSD.WebSocketFrame.OpCode.Binary -> stream.onBinary(message.binaryPayload)
+                    else -> Unit
+                }
+            }
+
+            override fun onPong(pong: NanoWSD.WebSocketFrame) = Unit
+
+            override fun onException(exception: IOException) {
+                stream?.onError(exception)
+            }
+
+            private fun closeQuietly(code: NanoWSD.WebSocketFrame.CloseCode, reason: String) {
+                runCatching { close(code, reason, false) }
+            }
+        }
+    }
+
+    private fun parsePluginStreamRoute(uri: String): PortalPluginStreamRoute? {
+        val prefix = "/portal/plugins/"
+        if (!uri.startsWith(prefix)) return null
+        val route = uri.removePrefix(prefix)
+        val streamSeparator = "/streams/"
+        val separatorIndex = route.indexOf(streamSeparator)
+        if (separatorIndex <= 0) return null
+        val pluginId = route.substring(0, separatorIndex).takeIf { it.isNotBlank() } ?: return null
+        val streamPath = route.substring(separatorIndex + streamSeparator.length)
+            .trim('/')
+            .takeIf { it.isNotBlank() }
+            ?: return null
+        return PortalPluginStreamRoute(pluginId, streamPath)
+    }
 
     private fun rpcResponse(runtime: PortalRuntimeState, session: NanoHTTPD.IHTTPSession): NanoHTTPD.Response {
         val batch = runCatching {
@@ -1664,6 +1756,11 @@ object PortalAppInspector {
         val localPortalUrl: String =
             "$PortalUrlBase?host=localhost&port=$port&mobileView=true&sourcePackageName=${sourcePackageName.portalUrlEncoded()}"
     }
+
+    private data class PortalPluginStreamRoute(
+        val pluginId: String,
+        val streamPath: String,
+    )
 
     private fun String.portalUrlEncoded(): String =
         URLEncoder.encode(this, "UTF-8")

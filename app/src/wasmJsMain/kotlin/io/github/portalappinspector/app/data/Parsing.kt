@@ -87,6 +87,20 @@ internal fun parseLogCallSite(value: JsonElement): PortalLogCallSite? {
     ).takeIf { it.className.isNotBlank() || it.fileName?.isNotBlank() == true }
 }
 
+internal fun parseScreenMirrorFrame(value: JsonElement): PortalScreenMirrorFrame? {
+    val item = runCatching { value.jsonObject }.getOrNull() ?: return null
+    val base64 = item["base64"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+    return PortalScreenMirrorFrame(
+        updatedAtEpochMillis = item["updatedAtEpochMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
+        base64 = base64,
+        mimeType = item["mimeType"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        format = item["format"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        width = item["width"]?.jsonPrimitive?.intOrNull ?: 0,
+        height = item["height"]?.jsonPrimitive?.intOrNull ?: 0,
+        sizeBytes = item["sizeBytes"]?.jsonPrimitive?.longOrNull ?: 0L,
+    )
+}
+
 internal fun createMockFromCall(call: PortalNetworkCall): PortalNetworkMock {
     val now = nowEpochMillis()
     val urlParts = call.url.networkUrlParts()

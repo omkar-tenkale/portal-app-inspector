@@ -43,5 +43,6 @@ dependencies {
     debugImplementation(project(":plugins:files"))
     debugImplementation(project(":plugins:logs"))
     debugImplementation(project(":plugins:network"))
+    debugImplementation(project(":plugins:screenmirror"))
     debugImplementation(project(":plugins:sharedprefs"))
 }

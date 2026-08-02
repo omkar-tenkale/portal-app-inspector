@@ -1,21 +1,22 @@
 package io.github.portalappinspector.app.features.sharedprefs
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.key
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.ui.input.key.type
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
@@ -25,12 +26,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -39,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.portalappinspector.app.data.*
 import io.github.portalappinspector.app.ui.*
+import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import io.github.portalappinspector.app.ui.tabs.*
 import io.github.portalappinspector.app.ui.toast.*
 import androidx.compose.runtime.getValue
@@ -55,7 +63,9 @@ internal fun SharedPrefsPanel(
     var error by remember(tab.file.path) { mutableStateOf<String?>(null) }
     var prefs by remember(tab.file.path) { mutableStateOf<List<PortalSharedPrefItem>>(emptyList()) }
     var editedValues by remember(tab.file.path) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var expandedKey by remember(tab.file.path) { mutableStateOf<String?>(null) }
     val savingKeys = remember(tab.file.path) { mutableStateListOf<String>() }
+    val updatedKeys = remember(tab.file.path) { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
     val toastHost = LocalToastHost.current
 
@@ -77,6 +87,9 @@ internal fun SharedPrefsPanel(
                 val nextPrefs = payload["items"]?.jsonArray?.map(::parseSharedPrefItem).orEmpty()
                 prefs = nextPrefs
                 editedValues = nextPrefs.associate { it.key to it.value }
+                if (expandedKey !in nextPrefs.map { it.key }) {
+                    expandedKey = null
+                }
             }.onFailure { throwable ->
                 error = throwable.message ?: "Shared preferences load failed"
                 toastHost.show(error ?: "Shared preferences load failed", ToastKind.Error, durationMillis = 2_400L)
@@ -113,6 +126,13 @@ internal fun SharedPrefsPanel(
                 if (editedValues[pref.key] == nextValue) {
                     editedValues = editedValues + (pref.key to savedValue)
                 }
+                if (pref.key !in updatedKeys) {
+                    updatedKeys += pref.key
+                }
+                scope.launch {
+                    delay(1_600L)
+                    updatedKeys.remove(pref.key)
+                }
                 toastHost.show("Preference updated", ToastKind.Success, durationMillis = 1_600L)
             }.onFailure { throwable ->
                 toastHost.show(throwable.message ?: "Preference update failed", ToastKind.Error, durationMillis = 2_400L)
@@ -130,13 +150,14 @@ internal fun SharedPrefsPanel(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp),
+                .height(40.dp)
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -179,7 +200,6 @@ internal fun SharedPrefsPanel(
         error?.let {
             StatusCard("Shared preferences request failed", it, PortalColors.error)
         }
-        SharedPrefsHeaderRow()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -193,7 +213,12 @@ internal fun SharedPrefsPanel(
                     pref = pref,
                     value = editedValues[pref.key] ?: pref.value,
                     saving = pref.key in savingKeys,
+                    updated = pref.key in updatedKeys,
                     enabled = !loading,
+                    expanded = expandedKey == pref.key,
+                    onToggle = {
+                        expandedKey = if (expandedKey == pref.key) null else pref.key
+                    },
                     onValueChange = { value ->
                         editedValues = editedValues + (pref.key to value)
                     },
@@ -205,33 +230,18 @@ internal fun SharedPrefsPanel(
 }
 
 @Composable
-internal fun SharedPrefsHeaderRow() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(32.dp)
-            .padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text("Key", color = PortalColors.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(220.dp))
-        Text("Type", color = PortalColors.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(86.dp))
-        Text("Value", color = PortalColors.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Text("State", color = PortalColors.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(86.dp))
-    }
-    RowDivider()
-}
-
-@Composable
 internal fun SharedPrefsRow(
     pref: PortalSharedPrefItem,
     value: String,
     saving: Boolean,
+    updated: Boolean,
     enabled: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     onValueChange: (String) -> Unit,
     onDebouncedSave: (String) -> Unit,
 ) {
-    val multiline = pref.valueType == "stringSet"
+    val growsWithContent = pref.valueType == "string" || pref.valueType == "stringSet"
     val invalid = !pref.isValidValue(value)
     LaunchedEffect(pref.key, value, enabled, invalid, saving) {
         if (!enabled || invalid || saving || value == pref.value) return@LaunchedEffect
@@ -240,55 +250,138 @@ internal fun SharedPrefsRow(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (multiline) 86.dp else 48.dp)
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .clickable(enabled = enabled, onClick = onToggle)
+                .padding(horizontal = 18.dp, vertical = if (expanded) 8.dp else 9.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = pref.key,
-                color = PortalColors.text,
-                fontSize = 13.sp,
-                maxLines = if (multiline) 3 else 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(220.dp),
-            )
-            Text(
-                text = pref.valueType,
-                color = PortalColors.muted,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(86.dp),
-            )
-            PortalTextField(
-                value = value,
-                onValueChange = onValueChange,
-                invalid = invalid,
-                singleLine = !multiline,
-                minLines = if (multiline) 3 else 1,
-                maxLines = if (multiline) 3 else 1,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SharedPrefEntryIcon()
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = pref.key,
+                        color = PortalColors.text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = pref.value,
+                            color = PortalColors.muted,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        if (expanded) {
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(if (multiline) 72.dp else 36.dp),
-                textStyle = TextStyle(
-                    color = PortalColors.text,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                ),
-            )
-            SharedPrefsSaveState(
-                saving = saving,
-                invalid = invalid,
-                changed = value != pref.value,
-                modifier = Modifier.width(86.dp),
-            )
+                    .fillMaxWidth()
+                    .padding(start = 50.dp, end = 18.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                SharedPrefsValueField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    invalid = invalid,
+                    singleLine = !growsWithContent,
+                    maxLines = if (growsWithContent) 4 else 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 30.dp, max = if (growsWithContent) 92.dp else 30.dp),
+                )
+                SharedPrefsSaveState(
+                    saving = saving,
+                    invalid = invalid,
+                    changed = value != pref.value,
+                    updated = updated,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         RowDivider()
+    }
+}
+
+@Composable
+internal fun SharedPrefEntryIcon() {
+    Image(
+        painter = rememberVectorPainter(PortalTabIcons.SharedPrefsEntry),
+        contentDescription = null,
+        colorFilter = ColorFilter.tint(PortalColors.muted),
+        modifier = Modifier.size(22.dp),
+    )
+}
+
+@Composable
+internal fun SharedPrefsValueField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    invalid: Boolean,
+    singleLine: Boolean,
+    maxLines: Int,
+    modifier: Modifier = Modifier,
+) {
+    val focusRequester = remember { FocusRequester() }
+    var fieldValue by remember {
+        mutableStateOf(TextFieldValue(value, selection = TextRange(0, value.length)))
+    }
+
+    LaunchedEffect(Unit) {
+        fieldValue = TextFieldValue(value, selection = TextRange(0, value.length))
+        focusRequester.requestFocus()
+    }
+    LaunchedEffect(value) {
+        if (value != fieldValue.text) {
+            fieldValue = TextFieldValue(value, selection = TextRange(0, value.length))
+        }
+    }
+
+    Column(modifier = modifier) {
+        BasicTextField(
+            value = fieldValue,
+            onValueChange = { nextValue ->
+                fieldValue = nextValue
+                if (nextValue.text != value) {
+                    onValueChange(nextValue.text)
+                }
+            },
+            singleLine = singleLine,
+            minLines = 1,
+            maxLines = maxLines,
+            textStyle = TextStyle(
+                color = PortalColors.text,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            ),
+            cursorBrush = SolidColor(PortalColors.accent),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .padding(bottom = 5.dp),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(if (invalid) PortalColors.error else PortalColors.inputBorder),
+        )
     }
 }
 
@@ -297,18 +390,26 @@ internal fun SharedPrefsSaveState(
     saving: Boolean,
     invalid: Boolean,
     changed: Boolean,
+    updated: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val text = when {
+        saving -> "Updating"
+        invalid -> "Invalid"
+        changed -> "Pending"
+        updated -> "Updated"
+        else -> null
+    } ?: return
+    val color = when {
+        invalid -> PortalColors.error
+        updated -> PortalColors.success
+        else -> PortalColors.warning
+    }
     Box(
-        modifier = modifier.height(28.dp),
-        contentAlignment = Alignment.CenterEnd,
+        modifier = modifier.height(15.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        when {
-            saving -> PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 34.dp, height = 14.dp))
-            invalid -> Text("Invalid", color = PortalColors.error, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            changed -> Text("Pending", color = PortalColors.warning, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            else -> Text("Saved", color = PortalColors.success, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

@@ -1,5 +1,4 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,13 +7,8 @@ plugins {
 }
 
 kotlin {
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        browser()
-    }
-
     androidLibrary {
-        namespace = "io.github.portalappinspector.lib"
+        namespace = "io.github.portalappinspector.plugins.screenmirror"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
 
@@ -27,14 +21,9 @@ kotlin {
     }
 
     sourceSets {
-        commonMain.dependencies {
-            api(libs.kotlinx.serialization.json)
-            implementation(libs.kotlinx.coroutines.core)
-        }
         androidMain.dependencies {
-            implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.nanohttpd)
-            implementation(libs.nanohttpd.websocket)
+            implementation(project(":lib"))
+            implementation(libs.kotlinx.serialization.json)
             implementation(libs.pine.core)
         }
     }

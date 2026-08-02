@@ -93,6 +93,11 @@ internal fun String.toImageBitmapOrNull(): ImageBitmap? =
         SkiaBitmap.makeFromImage(SkiaImage.makeFromEncoded(Base64.decode(this))).asComposeImageBitmap()
     }.getOrNull()
 
+internal fun ByteArray.toImageBitmapOrNull(): ImageBitmap? =
+    runCatching {
+        SkiaBitmap.makeFromImage(SkiaImage.makeFromEncoded(this)).asComposeImageBitmap()
+    }.getOrNull()
+
 @OptIn(ExperimentalEncodingApi::class)
 internal fun decodeBase64ToText(value: String): String =
     runCatching { Base64.decode(value).decodeToString() }

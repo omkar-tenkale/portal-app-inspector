@@ -11,6 +11,30 @@ interface PortalPlugin {
     suspend fun handle(request: PortalPluginRequest): PortalPluginResponse
 }
 
+interface PortalStreamingPlugin : PortalPlugin {
+    fun openStream(request: PortalStreamRequest): PortalPluginStream?
+}
+
+data class PortalStreamRequest(
+    val path: String,
+    val query: Map<String, String>,
+    val headers: Map<String, String>,
+)
+
+interface PortalPluginStream {
+    fun onOpen(sink: PortalStreamSink)
+    fun onText(message: String) {}
+    fun onBinary(bytes: ByteArray) {}
+    fun onClose() {}
+    fun onError(error: Throwable) {}
+}
+
+interface PortalStreamSink {
+    fun sendText(message: String)
+    fun sendBinary(bytes: ByteArray)
+    fun close()
+}
+
 @Serializable
 data class PortalPluginRequest(
     val id: Int,
