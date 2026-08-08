@@ -47,7 +47,7 @@ import javax.net.ssl.SSLHandshakeException
 class PortalNetworkPlugin : PortalPlugin {
     override val id: String = "portal-network"
     override val name: String = "Network"
-    override val version: String = "0.1.0"
+    override val version = 260809L
 
     init {
         NetworkTrafficStore.installHooks()
@@ -187,7 +187,7 @@ private object NetworkTrafficStore {
                     override fun beforeCall(callFrame: Pine.CallFrame) {
                         val call = callFrame.thisObject ?: return
                         val rawResponse = callFrame.args.firstOrNull() as? okhttp3.Response ?: return
-                        rawResponse.bodySnapshot()?.let { responseBodies[call] = it }
+                        responseBodies[call] = rawResponse.bodySnapshot()
                     }
                 },
             )
@@ -223,9 +223,15 @@ private object NetworkTrafficStore {
             method = request.method,
             url = request.url,
             endpoint = request.endpoint,
+            requestHeaders = request.headers,
+            requestBody = request.body?.body,
+            requestContentType = request.body?.contentType,
+            requestBodySizeBytes = request.body?.sizeBytes,
+            requestBodyTruncated = request.body?.truncated ?: false,
             statusCode = statusCode,
             durationMillis = (completedAtElapsed - startedAtElapsed).coerceAtLeast(0L),
             error = error,
+            responseHeaders = responseBody?.headers.orEmpty(),
             responseBody = responseBody?.body,
             responseContentType = responseBody?.contentType,
             responseBodySizeBytes = responseBody?.sizeBytes,
@@ -249,6 +255,8 @@ private object NetworkTrafficStore {
                 method = request.method(),
                 url = url.toString(),
                 endpoint = "${url.encodedPath()}$query",
+                headers = request.headers().names().associateWith { name -> request.headers().values(name) },
+                body = request.body()?.bodySnapshot(),
                 isMocked = mockedRetrofitCalls.containsKey(this),
             )
         }.getOrElse { error ->
@@ -256,6 +264,8 @@ private object NetworkTrafficStore {
                 method = "HTTP",
                 url = "",
                 endpoint = error.message ?: "Unable to create request",
+                headers = emptyMap(),
+                body = null,
                 isMocked = mockedRetrofitCalls.containsKey(this),
             )
         }
@@ -301,6 +311,8 @@ private object NetworkTrafficStore {
         val method: String,
         val url: String,
         val endpoint: String,
+        val headers: Map<String, List<String>>,
+        val body: RequestBodySnapshot?,
         val isMocked: Boolean,
     )
 
@@ -310,9 +322,15 @@ private object NetworkTrafficStore {
         val method: String,
         val url: String,
         val endpoint: String,
+        val requestHeaders: Map<String, List<String>>,
+        val requestBody: String?,
+        val requestContentType: String?,
+        val requestBodySizeBytes: Long?,
+        val requestBodyTruncated: Boolean,
         val statusCode: Int?,
         val durationMillis: Long,
         val error: String?,
+        val responseHeaders: Map<String, List<String>>,
         val responseBody: String?,
         val responseContentType: String?,
         val responseBodySizeBytes: Long?,
@@ -325,6 +343,23 @@ private object NetworkTrafficStore {
             put("method", method)
             put("url", url)
             put("endpoint", endpoint)
+            put("requestHeaders", requestHeaders.toJsonObject())
+            if (requestBody == null) {
+                put("requestBody", JsonNull)
+            } else {
+                put("requestBody", requestBody)
+            }
+            if (requestContentType == null) {
+                put("requestContentType", JsonNull)
+            } else {
+                put("requestContentType", requestContentType)
+            }
+            if (requestBodySizeBytes == null) {
+                put("requestBodySizeBytes", JsonNull)
+            } else {
+                put("requestBodySizeBytes", requestBodySizeBytes)
+            }
+            put("requestBodyTruncated", requestBodyTruncated)
             if (statusCode == null) {
                 put("statusCode", JsonNull)
             } else {
@@ -336,6 +371,7 @@ private object NetworkTrafficStore {
             } else {
                 put("error", error)
             }
+            put("responseHeaders", responseHeaders.toJsonObject())
             if (responseBody == null) {
                 put("responseBody", JsonNull)
             } else {
@@ -356,34 +392,64 @@ private object NetworkTrafficStore {
         }
     }
 
-    private data class ResponseBodySnapshot(
+    private data class RequestBodySnapshot(
         val body: String,
         val contentType: String?,
         val sizeBytes: Long?,
         val truncated: Boolean,
     )
 
-    private fun okhttp3.Response.bodySnapshot(): ResponseBodySnapshot? =
+    private data class ResponseBodySnapshot(
+        val headers: Map<String, List<String>>,
+        val body: String?,
+        val contentType: String?,
+        val sizeBytes: Long?,
+        val truncated: Boolean,
+    )
+
+    private fun okhttp3.Response.bodySnapshot(): ResponseBodySnapshot =
         runCatching {
-            val body = body() ?: return null
+            val responseHeaders = headers().names().associateWith { name -> headers().values(name) }
+            val body = body() ?: return ResponseBodySnapshot(
+                headers = responseHeaders,
+                body = null,
+                contentType = null,
+                sizeBytes = null,
+                truncated = false,
+            )
             val contentLength = body.contentLength()
             val peeked: ResponseBody = peekBody(MaxBodyBytes)
             val capturedBody = peeked.string()
             ResponseBodySnapshot(
+                headers = responseHeaders,
                 body = capturedBody,
                 contentType = body.contentType()?.toString(),
                 sizeBytes = contentLength.takeIf { it >= 0L } ?: capturedBody.encodeToByteArray().size.toLong(),
                 truncated = contentLength > MaxBodyBytes,
             )
-        }.getOrNull()
+        }.getOrElse {
+            ResponseBodySnapshot(
+                headers = headers().names().associateWith { name -> headers().values(name) },
+                body = null,
+                contentType = null,
+                sizeBytes = null,
+                truncated = false,
+            )
+        }
 
     private fun List<kotlinx.serialization.json.JsonObject>.toJsonArray(): JsonArray =
         buildJsonArray { forEach(::add) }
 
+    private fun Map<String, List<String>>.toJsonObject() = buildJsonObject {
+        forEach { (name, values) ->
+            put(name, buildJsonArray { values.forEach(::add) })
+        }
+    }
+
     private fun Request.mockMatchSnapshot(): MockRequestSnapshot {
         val url = url()
         val requestBodyText = if (mocks.get().any { it.expectation.needsRequestBody }) {
-            body()?.readTextOrNull()
+            body()?.bodySnapshot()?.body
         } else {
             null
         }
@@ -398,11 +464,19 @@ private object NetworkTrafficStore {
         )
     }
 
-    private fun okhttp3.RequestBody.readTextOrNull(): String? =
+    private fun okhttp3.RequestBody.bodySnapshot(): RequestBodySnapshot? =
         runCatching {
             val buffer = Buffer()
             writeTo(buffer)
-            buffer.readUtf8()
+            val originalSize = buffer.size()
+            val capturedByteCount = originalSize.coerceAtMost(MaxBodyBytes)
+            val capturedBody = buffer.readUtf8(capturedByteCount)
+            RequestBodySnapshot(
+                body = capturedBody,
+                contentType = contentType()?.toString(),
+                sizeBytes = contentLength().takeIf { it >= 0L } ?: originalSize,
+                truncated = originalSize > MaxBodyBytes,
+            )
         }.getOrNull()
 
     private class MockedOkHttpCall(
@@ -469,13 +543,13 @@ private object NetworkTrafficStore {
     private fun PortalNetworkMockResponse.toThrowable(): IOException? {
         val errorType = error?.type ?: return null
         return when (errorType) {
-            "ioException" -> IOException("Portal mock I/O error")
-            "socketTimeout" -> SocketTimeoutException("Portal mock socket timeout")
-            "unknownHost" -> UnknownHostException("Portal mock unknown host")
-            "connectionRefused" -> ConnectException("Portal mock connection refused")
-            "sslHandshake" -> SSLHandshakeException("Portal mock SSL handshake failure")
-            "jsonParse" -> IOException("Portal mock JSON parse error")
-            else -> IOException("Portal mock error: $errorType")
+            "ioException" -> IOException("PortalAppInspector mock I/O error")
+            "socketTimeout" -> SocketTimeoutException("PortalAppInspector mock socket timeout")
+            "unknownHost" -> UnknownHostException("PortalAppInspector mock unknown host")
+            "connectionRefused" -> ConnectException("PortalAppInspector mock connection refused")
+            "sslHandshake" -> SSLHandshakeException("PortalAppInspector mock SSL handshake failure")
+            "jsonParse" -> IOException("PortalAppInspector mock JSON parse error")
+            else -> IOException("PortalAppInspector mock error: $errorType")
         }
     }
 

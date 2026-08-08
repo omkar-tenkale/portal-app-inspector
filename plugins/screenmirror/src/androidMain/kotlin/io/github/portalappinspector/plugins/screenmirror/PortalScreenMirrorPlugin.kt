@@ -43,7 +43,7 @@ import kotlin.math.max
 class PortalScreenMirrorPlugin : PortalStreamingPlugin {
     override val id: String = "portal-screen-mirror"
     override val name: String = "Screen Mirror"
-    override val version: String = "0.1.0"
+    override val version = 260809L
 
     init {
         ScreenMirrorStore.installHooks()

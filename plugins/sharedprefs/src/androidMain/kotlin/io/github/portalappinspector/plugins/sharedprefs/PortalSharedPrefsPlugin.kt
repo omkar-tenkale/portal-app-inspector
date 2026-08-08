@@ -19,7 +19,7 @@ import java.io.File
 class PortalSharedPrefsPlugin : PortalPlugin {
     override val id: String = "portal-shared-prefs"
     override val name: String = "Shared Preferences"
-    override val version: String = "0.1.0"
+    override val version = 260809L
 
     override suspend fun handle(request: PortalPluginRequest): PortalPluginResponse {
         val operation = request.payload["type"]?.jsonPrimitive?.contentOrNull

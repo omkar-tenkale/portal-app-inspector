@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 interface PortalPlugin {
     val id: String
     val name: String
-    val version: String
+    val version: Long
 
     suspend fun handle(request: PortalPluginRequest): PortalPluginResponse
 }
@@ -37,14 +37,14 @@ interface PortalStreamSink {
 
 @Serializable
 data class PortalPluginRequest(
-    val id: Int,
+    val id: Long,
     val pluginId: String,
     val payload: JsonObject,
 )
 
 @Serializable
 data class PortalPluginResponse(
-    val id: Int,
+    val id: Long,
     val pluginId: String,
     val ok: Boolean,
     val payload: JsonObject? = null,
@@ -81,7 +81,7 @@ data class PortalManifest(
 data class PortalPluginManifest(
     val id: String,
     val name: String,
-    val version: String,
+    val version: Long,
 )
 
 @Serializable

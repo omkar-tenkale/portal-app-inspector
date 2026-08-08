@@ -48,9 +48,15 @@ internal fun parseNetworkCall(value: kotlinx.serialization.json.JsonElement): Po
         method = item["method"]?.jsonPrimitive?.contentOrNull.orEmpty(),
         url = item["url"]?.jsonPrimitive?.contentOrNull.orEmpty(),
         endpoint = item["endpoint"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        requestHeaders = item["requestHeaders"].parseStringListMap(),
+        requestBody = item["requestBody"]?.jsonPrimitive?.contentOrNull,
+        requestContentType = item["requestContentType"]?.jsonPrimitive?.contentOrNull,
+        requestBodySizeBytes = item["requestBodySizeBytes"]?.jsonPrimitive?.longOrNull,
+        requestBodyTruncated = item["requestBodyTruncated"]?.jsonPrimitive?.booleanOrNull == true,
         statusCode = item["statusCode"]?.jsonPrimitive?.intOrNull,
         durationMillis = item["durationMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
         error = item["error"]?.jsonPrimitive?.contentOrNull,
+        responseHeaders = item["responseHeaders"].parseStringListMap(),
         responseBody = item["responseBody"]?.jsonPrimitive?.contentOrNull,
         responseContentType = item["responseContentType"]?.jsonPrimitive?.contentOrNull,
         responseBodySizeBytes = item["responseBodySizeBytes"]?.jsonPrimitive?.longOrNull,
@@ -111,8 +117,9 @@ internal fun createMockFromCall(call: PortalNetworkCall): PortalNetworkMock {
         updatedAtEpochMillis = now,
         expectation = PortalNetworkMockExpectation(
             matchers = listOf(
-                PortalNetworkMockMatcher(type = "urlContains", value = call.url.ifBlank { urlParts.domain }),
-                PortalNetworkMockMatcher(type = "methodContains", value = call.method),
+                PortalNetworkMockMatcher(type = "domain", value = urlParts.domain),
+                PortalNetworkMockMatcher(type = "httpMethod", value = call.method),
+                PortalNetworkMockMatcher(type = "urlPathContains", value = urlParts.path),
             ).filter { it.value.isNotBlank() },
         ),
         response = PortalNetworkMockResponse(
@@ -172,16 +179,19 @@ internal fun List<PortalNetworkMockMatcher>.toSimpleMockMatchers(): List<PortalN
     map { it.toSimpleMockMatcher() }
 
 internal val MockConditionTypes = listOf(
+    "domain",
+    "urlPathContains",
+    "httpMethod",
     "urlContains",
     "headersContainText",
     "requestBodyContainsTextNormalized",
-    "methodContains",
 )
 
 internal val NetworkFilterTypes = listOf(
     "urlContains",
     "methodContains",
     "requestBodyContainsTextNormalized",
+    "headersContainText",
 )
 
 internal fun PortalNetworkMockMatcher.matches(call: PortalNetworkCall): Boolean {
@@ -190,30 +200,125 @@ internal fun PortalNetworkMockMatcher.matches(call: PortalNetworkCall): Boolean 
     return when (type) {
         "urlContains" -> call.url.contains(needle, ignoreCase = true) ||
             call.endpoint.contains(needle, ignoreCase = true)
+        "domain" -> call.url.networkUrlParts().domain.contains(needle, ignoreCase = true)
+        "urlPathContains" -> call.url.networkUrlParts().path.contains(needle, ignoreCase = true) ||
+            call.endpoint.substringBefore('?').contains(needle, ignoreCase = true)
+        "httpMethod" -> call.method.equals(needle, ignoreCase = true)
         "methodContains" -> call.method.contains(needle, ignoreCase = true)
         "requestBodyContainsTextNormalized" -> {
-            val normalizedBody = call.responseBody?.withoutNetworkFilterInvisibleChars() ?: return false
-            normalizedBody.contains(needle.withoutNetworkFilterInvisibleChars(), ignoreCase = true)
+            val normalizedNeedle = needle.withoutNetworkFilterInvisibleChars()
+            call.networkBodies().any { body ->
+                body.withoutNetworkFilterInvisibleChars().contains(normalizedNeedle, ignoreCase = true)
+            }
         }
+        "headersContainText" -> call.networkHeaderLines().any { it.contains(needle, ignoreCase = true) }
         else -> false
     }
+}
+
+internal fun List<NetworkFilterRule>.matchesNetworkCall(call: PortalNetworkCall): Boolean {
+    val includeRules = rulesFor(NetworkFilterMode.Include)
+    val excludeRules = rulesFor(NetworkFilterMode.Exclude)
+    return includeRules.matchesGrouped(call, emptyRulesMatch = true) &&
+        !excludeRules.any { it.matcher.matches(call) }
+}
+
+internal fun List<NetworkFilterRule>.firstHighlightFor(call: PortalNetworkCall): NetworkHighlightMatch? =
+    rulesFor(NetworkFilterMode.Highlight)
+        .firstOrNull { it.matcher.matches(call) }
+        ?.let { rule ->
+            NetworkHighlightMatch(
+                query = rule.matcher.value.trim(),
+                snippet = call.matchSnippet(rule.matcher) ?: rule.matcher.value.trim(),
+            )
+        }
+
+private fun List<NetworkFilterRule>.rulesFor(mode: NetworkFilterMode): List<NetworkFilterRule> =
+    filter { it.mode == mode && it.matcher.value.isNotBlank() }
+
+private fun List<NetworkFilterRule>.matchesGrouped(
+    call: PortalNetworkCall,
+    emptyRulesMatch: Boolean,
+): Boolean {
+    if (isEmpty()) return emptyRulesMatch
+    return groupBy { it.matcher.type }.all { (_, fieldRules) ->
+        fieldRules.any { it.matcher.matches(call) }
+    }
+}
+
+private fun PortalNetworkCall.networkBodies(): List<String> =
+    listOfNotNull(requestBody, responseBody).filter { it.isNotBlank() }
+
+private fun PortalNetworkCall.networkHeaderLines(): List<String> =
+    buildList {
+        requestHeaders.addHeaderLinesTo(this)
+        responseHeaders.addHeaderLinesTo(this)
+    }
+
+private fun Map<String, List<String>>.addHeaderLinesTo(target: MutableList<String>) {
+    entries.forEach { (name, values) ->
+        if (values.isEmpty()) {
+            target += name
+        } else {
+            values.forEach { value -> target += "$name: $value" }
+        }
+    }
+}
+
+private fun PortalNetworkCall.matchSnippet(matcher: PortalNetworkMockMatcher): String? {
+    val needle = matcher.value.trim()
+    if (needle.isBlank()) return null
+    return when (matcher.type) {
+        "urlContains" -> listOf(url, endpoint).firstSnippet(needle)
+        "domain" -> listOf(url.networkUrlParts().domain).firstSnippet(needle)
+        "urlPathContains" -> listOf(url.networkUrlParts().path, endpoint.substringBefore('?')).firstSnippet(needle)
+        "httpMethod" -> listOf(method).firstSnippet(needle)
+        "methodContains" -> listOf(method).firstSnippet(needle)
+        "requestBodyContainsTextNormalized" -> networkBodies().firstSnippet(needle)
+        "headersContainText" -> networkHeaderLines().firstSnippet(needle)
+        else -> null
+    }
+}
+
+private fun List<String>.firstSnippet(needle: String): String? =
+    firstNotNullOfOrNull { candidate -> candidate.snippetAround(needle) }
+
+private fun String.snippetAround(needle: String, context: Int = 14): String? {
+    val index = indexOf(needle, ignoreCase = true)
+    if (index < 0) return null
+    val start = (index - context).coerceAtLeast(0)
+    val end = (index + needle.length + context).coerceAtMost(length)
+    val prefix = if (start > 0) "..." else ""
+    val suffix = if (end < length) "..." else ""
+    return prefix + substring(start, end).replace('\n', ' ').replace('\r', ' ') + suffix
 }
 
 internal fun String.withoutNetworkFilterInvisibleChars(): String =
     filterNot { it.isWhitespace() }
 
+private fun JsonElement?.parseStringListMap(): Map<String, List<String>> {
+    val json = runCatching { this?.jsonObject }.getOrNull() ?: return emptyMap()
+    return json.mapValues { (_, value) ->
+        runCatching {
+            value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+        }.getOrElse {
+            listOfNotNull(value.jsonPrimitive.contentOrNull)
+        }
+    }
+}
+
 internal fun PortalNetworkMockMatcher.toSimpleMockMatcher(): PortalNetworkMockMatcher =
     when (type) {
         "urlContains" -> this
+        "domain" -> this
+        "urlPathContains" -> this
+        "httpMethod" -> this
         "headersContainText" -> this
         "requestBodyContainsTextNormalized" -> this
         "methodContains" -> this
-        "domain",
-        "urlPathContains" -> copy(type = "urlContains", key = null)
         "queryEquals" -> copy(type = "urlContains", key = null, value = listOfNotNull(key, value).joinToString("="))
         "requestBodyContainsText" -> copy(type = "requestBodyContainsTextNormalized", key = null)
         "headerContains" -> copy(type = "headersContainText", key = null, value = listOfNotNull(key, value).joinToString(":"))
-        "httpMethod" -> copy(type = "methodContains", key = null)
         else -> copy(type = "urlContains", key = null)
     }
 
@@ -226,9 +331,9 @@ internal fun String.matcherLabel(): String =
         "headersContainText" -> "headers"
         "requestBodyContainsTextNormalized" -> "body"
         "methodContains" -> "method"
-        "domain" -> "url"
+        "domain" -> "domain"
         "httpMethod" -> "method"
-        "urlPathContains" -> "url"
+        "urlPathContains" -> "path"
         "queryEquals" -> "url"
         "requestBodyContainsText" -> "body"
         "headerContains" -> "headers"

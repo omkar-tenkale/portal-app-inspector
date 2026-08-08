@@ -39,7 +39,7 @@ internal class PortalSourceClient {
             maxFrameSize = Int.MAX_VALUE.toLong()
         }
     }
-    internal var nextRequestId = 0
+    internal var nextRequestId = 0L
 
     suspend fun health(connection: PortalConnection): PortalHealth =
         httpClient.get("${connection.baseUrl}/portal/health").body()
@@ -70,7 +70,7 @@ internal class PortalSourceClient {
         return response.payload ?: JsonObject(emptyMap())
     }
 
-    internal fun nextId(): Int {
+    internal fun nextId(): Long {
         nextRequestId += 1
         return nextRequestId
     }

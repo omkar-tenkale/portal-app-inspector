@@ -55,14 +55,36 @@ internal data class PortalNetworkCall(
     val method: String,
     val url: String,
     val endpoint: String,
+    val requestHeaders: Map<String, List<String>> = emptyMap(),
+    val requestBody: String? = null,
+    val requestContentType: String? = null,
+    val requestBodySizeBytes: Long? = null,
+    val requestBodyTruncated: Boolean = false,
     val statusCode: Int?,
     val durationMillis: Long,
     val error: String?,
+    val responseHeaders: Map<String, List<String>> = emptyMap(),
     val responseBody: String?,
     val responseContentType: String?,
     val responseBodySizeBytes: Long?,
     val responseBodyTruncated: Boolean,
     val isMocked: Boolean,
+)
+
+internal enum class NetworkFilterMode(val label: String) {
+    Include("Include"),
+    Exclude("Exclude"),
+    Highlight("Highlight"),
+}
+
+internal data class NetworkFilterRule(
+    val mode: NetworkFilterMode,
+    val matcher: PortalNetworkMockMatcher,
+)
+
+internal data class NetworkHighlightMatch(
+    val query: String,
+    val snippet: String,
 )
 
 internal sealed interface PortalNetworkRow {

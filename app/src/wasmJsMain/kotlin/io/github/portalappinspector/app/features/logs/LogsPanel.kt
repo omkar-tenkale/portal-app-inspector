@@ -28,6 +28,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
@@ -41,6 +44,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -70,44 +74,38 @@ internal fun LogsPanel(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var lastTimestamp by remember(connection) { mutableStateOf(0L) }
-    var containsDraft by remember { mutableStateOf("") }
-    var filter by remember(connection) { mutableStateOf(PortalLogsFilter()) }
+    var filterMode by remember(connection) { mutableStateOf(NetworkFilterMode.Include) }
+    var filterType by remember(connection) { mutableStateOf(LogFilterTypes.first()) }
+    var filterValue by remember(connection) { mutableStateOf("") }
+    var filters by remember(connection) { mutableStateOf(emptyList<LogFilterRule>()) }
     val logs = remember(connection) { mutableStateListOf<PortalLogEntry>() }
     val logListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
     val use12HourClock = remember { jsUses12HourClock() }
     var logDisplayNowEpochMillis by remember { mutableStateOf(nowEpochMillis()) }
-    val filterKey = filter.signature()
-    val logGapThresholdMillis = if (filter.hasActiveFilters()) {
+    val sourceFilter = remember { PortalLogsFilter(sources = setOf(AndroidLogSource)) }
+    val filterKey = sourceFilter.signature()
+    val filteredLogs = logs.asReversed().filter { entry ->
+        entry.source == AndroidLogSource && filters.matchesLogEntry(entry)
+    }
+    val logGapThresholdMillis = if (filters.any { it.mode != NetworkFilterMode.Highlight }) {
         FilteredLogGapThresholdMillis
     } else {
         LogGapThresholdMillis
     }
-    val logRows = remember(logs.size, logs.firstOrNull()?.id, logs.lastOrNull()?.id, filterKey) {
-        logs.reversed().toLogRows(logGapThresholdMillis)
+    val logRows = remember(logs.size, logs.firstOrNull()?.id, logs.lastOrNull()?.id, filters.signature(), logGapThresholdMillis) {
+        filteredLogs.toLogRows(logGapThresholdMillis)
     }
 
-    fun addContainsFilter() {
-        val value = containsDraft.trim()
+    fun addFilter(selectedMode: NetworkFilterMode, selectedType: String) {
+        val value = filterValue.trim()
         if (value.isBlank()) return
-        filter = filter.copy(contains = (filter.contains + value).distinct())
-        containsDraft = ""
+        filters = (filters + LogFilterRule(selectedMode, selectedType, value)).distinct()
+        filterValue = ""
     }
 
-    fun removeContainsFilter(value: String) {
-        filter = filter.copy(contains = filter.contains.filterNot { it == value })
-    }
-
-    fun toggleLevel(level: String) {
-        filter = filter.copy(
-            levels = if (level in filter.levels) filter.levels - level else filter.levels + level,
-        )
-    }
-
-    fun toggleSource(source: String) {
-        filter = filter.copy(
-            sources = if (source in filter.sources) filter.sources - source else filter.sources + source,
-        )
+    fun removeFilter(index: Int) {
+        filters = filters.filterIndexed { filterIndex, _ -> filterIndex != index }
     }
 
     suspend fun loadNewLogs() {
@@ -119,7 +117,7 @@ internal fun LogsPanel(
                 payload = buildJsonObject {
                     put("type", "listAfter")
                     put("logsAfterEpochMillis", lastTimestamp)
-                    put("filter", filter.toJson())
+                    put("filter", sourceFilter.toJson())
                 },
             )
         }.onSuccess { payload ->
@@ -159,9 +157,7 @@ internal fun LogsPanel(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(18.dp),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (!enabled) {
@@ -169,13 +165,18 @@ internal fun LogsPanel(
             return@Column
         }
         LogsFilterBar(
-            filter = filter,
-            containsDraft = containsDraft,
-            onContainsDraftChange = { containsDraft = it },
-            onAddContains = ::addContainsFilter,
-            onRemoveContains = ::removeContainsFilter,
-            onToggleLevel = ::toggleLevel,
-            onToggleSource = ::toggleSource,
+            filters = filters,
+            filterMode = filterMode,
+            filterType = filterType,
+            filterValue = filterValue,
+            onFilterModeChange = { filterMode = it },
+            onFilterTypeChange = {
+                filterType = it
+                filterValue = ""
+            },
+            onFilterValueChange = { filterValue = it },
+            onAddFilter = ::addFilter,
+            onDeleteFilter = ::removeFilter,
             onClear = {
                 lastTimestamp = logs.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
                 logs.clear()
@@ -187,7 +188,10 @@ internal fun LogsPanel(
             StatusCard("Logs request failed", it, PortalColors.error)
         }
         if (logs.isEmpty() && !loading && error == null) {
-            StatusCard("No logs captured", "Trigger Android Log or System print calls in the source app.", PortalColors.muted)
+            StatusCard("No logs captured", "Trigger Android Log calls in the source app.", PortalColors.muted)
+        }
+        if (logs.isNotEmpty() && filteredLogs.isEmpty()) {
+            StatusCard("No matching logs", "Adjust the log filter.", PortalColors.muted)
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -200,6 +204,7 @@ internal fun LogsPanel(
                         nowEpochMillis = logDisplayNowEpochMillis,
                         timezoneOffsetMinutes = timezoneOffsetMinutes,
                         use12HourClock = use12HourClock,
+                        highlight = filters.firstHighlightFor(row.entry),
                     )
                     is PortalLogRow.Gap -> LogGapRow(row.durationMillis)
                 }
@@ -211,127 +216,189 @@ internal fun LogsPanel(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LogsFilterBar(
-    filter: PortalLogsFilter,
-    containsDraft: String,
-    onContainsDraftChange: (String) -> Unit,
-    onAddContains: () -> Unit,
-    onRemoveContains: (String) -> Unit,
-    onToggleLevel: (String) -> Unit,
-    onToggleSource: (String) -> Unit,
+    filters: List<LogFilterRule>,
+    filterMode: NetworkFilterMode,
+    filterType: String,
+    filterValue: String,
+    onFilterModeChange: (NetworkFilterMode) -> Unit,
+    onFilterTypeChange: (String) -> Unit,
+    onFilterValueChange: (String) -> Unit,
+    onAddFilter: (NetworkFilterMode, String) -> Unit,
+    onDeleteFilter: (Int) -> Unit,
     onClear: () -> Unit,
     clearEnabled: Boolean,
 ) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 10.dp, top = 6.dp, end = 8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        filter.contains.forEach { value ->
-            LogFilterChip(
-                text = "contains:$value",
-                selected = true,
-                onClick = { onRemoveContains(value) },
+        FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            filters.withIndex().forEach { indexedFilter ->
+                LogFilterChip(
+                    rule = indexedFilter.value,
+                    onDelete = { onDeleteFilter(indexedFilter.index) },
+                )
+            }
+            LogFilterAddRow(
+                mode = filterMode,
+                type = filterType,
+                value = filterValue,
+                onModeChange = onFilterModeChange,
+                onTypeChange = onFilterTypeChange,
+                onValueChange = onFilterValueChange,
+                onAdd = onAddFilter,
             )
         }
-        LogContainsFilterField(
-            value = containsDraft,
-            onValueChange = onContainsDraftChange,
-            onAdd = onAddContains,
-        )
-        PortalLogLevels.forEach { level ->
-            LogFilterChip(
-                text = "level:$level",
-                selected = level in filter.levels,
-                onClick = { onToggleLevel(level) },
-            )
-        }
-        PortalLogSources.forEach { source ->
-            LogFilterChip(
-                text = "source:${source.logSourceLabel()}",
-                selected = source in filter.sources,
-                onClick = { onToggleSource(source) },
-            )
-        }
-        PortalButton(
+        LogsToolbarDivider()
+        LogsToolbarActionButton(
+            icon = PortalTabIcons.Delete,
             text = "Clear",
             onClick = onClear,
             enabled = clearEnabled,
-            modifier = Modifier.height(30.dp),
+            modifier = Modifier.height(28.dp),
         )
     }
 }
 
 @Composable
-internal fun LogContainsFilterField(
+internal fun LogFilterAddRow(
+    mode: NetworkFilterMode,
+    type: String,
     value: String,
+    onModeChange: (NetworkFilterMode) -> Unit,
+    onTypeChange: (String) -> Unit,
     onValueChange: (String) -> Unit,
-    onAdd: () -> Unit,
+    onAdd: (NetworkFilterMode, String) -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .height(30.dp)
-            .widthIn(min = 190.dp, max = 260.dp)
-            .background(PortalColors.input, RoundedCornerShape(14.dp))
-            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
-            .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
-    ) {
-        Text("contains", color = PortalColors.muted, fontSize = 12.sp, maxLines = 1)
-        InlineConditionTextField(
-            value = value,
-            onValueChange = onValueChange,
-            onSubmit = onAdd,
-            showUnderline = true,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
+    val selectedType = type.takeIf { it in LogFilterTypes } ?: LogFilterTypes.first()
+    LaunchedEffect(type) {
+        if (type !in LogFilterTypes) {
+            onTypeChange(LogFilterTypes.first())
+        }
+    }
+    var activeMenu by remember { mutableStateOf(LogFilterMenu.Mode) }
+    var menuVisible by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.widthIn(max = 420.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
-                .size(18.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(enabled = value.isNotBlank(), onClick = onAdd),
-            contentAlignment = Alignment.Center,
+                .height(30.dp)
+                .widthIn(max = 360.dp)
+                .background(PortalColors.button, RoundedCornerShape(14.dp))
+                .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+                .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
         ) {
-            Image(
-                painter = rememberVectorPainter(PortalTabIcons.Plus),
-                contentDescription = null,
-                modifier = Modifier.size(10.dp),
-                colorFilter = ColorFilter.tint(if (value.isBlank()) PortalColors.muted else PortalColors.text),
+            LogFilterModeSelector(
+                selected = mode,
+                expanded = menuVisible && activeMenu == LogFilterMenu.Mode,
+                onClick = {
+                    if (activeMenu == LogFilterMenu.Mode) {
+                        menuVisible = !menuVisible
+                    } else {
+                        activeMenu = LogFilterMenu.Mode
+                        menuVisible = true
+                    }
+                },
             )
+            InlineConditionTextField(
+                value = value,
+                onValueChange = onValueChange,
+                onSubmit = { if (value.isNotBlank()) onAdd(mode, selectedType) },
+                modifier = Modifier.width(110.dp),
+            )
+            Text("in", color = PortalColors.muted, fontSize = 12.sp)
+            LogFilterTypeSelector(
+                selected = selectedType,
+                expanded = menuVisible && activeMenu == LogFilterMenu.Type,
+                onClick = {
+                    if (activeMenu == LogFilterMenu.Type) {
+                        menuVisible = !menuVisible
+                    } else {
+                        activeMenu = LogFilterMenu.Type
+                        menuVisible = true
+                    }
+                },
+            )
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = value.isNotBlank()) { onAdd(mode, selectedType) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = rememberVectorPainter(PortalTabIcons.Plus),
+                    contentDescription = null,
+                    modifier = Modifier.size(10.dp),
+                    colorFilter = ColorFilter.tint(if (value.isBlank()) PortalColors.muted else PortalColors.text),
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = menuVisible,
+            enter = fadeIn(animationSpec = tween(120)) + expandVertically(animationSpec = tween(140)),
+            exit = fadeOut(animationSpec = tween(90)) + shrinkVertically(animationSpec = tween(120)),
+        ) {
+            when (activeMenu) {
+                LogFilterMenu.Mode -> LogFilterModeMenu(
+                    selected = mode,
+                    onSelect = {
+                        menuVisible = false
+                        onModeChange(it)
+                    },
+                    modifier = Modifier.widthIn(max = 360.dp),
+                )
+                LogFilterMenu.Type -> LogFilterTypeMenu(
+                    selected = selectedType,
+                    onSelect = {
+                        menuVisible = false
+                        onTypeChange(it)
+                    },
+                    modifier = Modifier.widthIn(max = 360.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
 internal fun LogFilterChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
+    rule: LogFilterRule,
+    onDelete: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
             .height(30.dp)
-            .widthIn(max = 220.dp)
-            .background(if (selected) PortalColors.button else Color.Transparent, RoundedCornerShape(14.dp))
-            .border(
-                1.dp,
-                if (selected) PortalColors.accent.copy(alpha = 0.72f) else PortalColors.inputBorder,
-                RoundedCornerShape(14.dp),
-            )
+            .widthIn(max = 300.dp)
+            .background(PortalColors.button, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
             .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
     ) {
         Text(
-            text = text,
-            color = if (selected) PortalColors.text else PortalColors.muted,
+            text = rule.label(),
+            color = PortalColors.text,
             fontSize = 12.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (selected && text.startsWith("contains:")) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center,
+        ) {
             Image(
                 painter = rememberVectorPainter(PortalTabIcons.Close),
                 contentDescription = null,
@@ -341,6 +408,254 @@ internal fun LogFilterChip(
         }
     }
 }
+
+@Composable
+internal fun LogFilterModeSelector(
+    selected: NetworkFilterMode,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = modifier
+            .height(24.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 3.dp),
+    ) {
+        Text(selected.label, color = PortalColors.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Image(
+            painter = rememberVectorPainter(if (expanded) PortalTabIcons.ArrowUp else PortalTabIcons.ArrowDown),
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            colorFilter = ColorFilter.tint(PortalColors.muted),
+        )
+    }
+}
+
+@Composable
+internal fun LogFilterModeMenu(
+    selected: NetworkFilterMode,
+    onSelect: (NetworkFilterMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .background(PortalColors.card, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+    ) {
+        NetworkFilterMode.values().forEach { option ->
+            Text(
+                text = option.label,
+                color = if (option == selected) PortalColors.accent else PortalColors.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(if (option == selected) PortalColors.button else Color.Transparent, RoundedCornerShape(10.dp))
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun LogFilterTypeSelector(
+    selected: String,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = modifier
+            .height(24.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 3.dp),
+    ) {
+        Text(selected.logFilterTypeLabel(), color = PortalColors.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Image(
+            painter = rememberVectorPainter(if (expanded) PortalTabIcons.ArrowUp else PortalTabIcons.ArrowDown),
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            colorFilter = ColorFilter.tint(PortalColors.muted),
+        )
+    }
+}
+
+@Composable
+internal fun LogFilterTypeMenu(
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .background(PortalColors.card, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+    ) {
+        LogFilterTypes.forEach { option ->
+            Text(
+                text = option.logFilterTypeLabel(),
+                color = if (option == selected) PortalColors.accent else PortalColors.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(if (option == selected) PortalColors.button else Color.Transparent, RoundedCornerShape(10.dp))
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LogsToolbarDivider() {
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 1.dp, vertical = 5.dp)
+            .width(1.dp)
+            .height(18.dp)
+            .background(PortalColors.border.copy(alpha = 0.85f)),
+    )
+}
+
+@Composable
+private fun LogsToolbarActionButton(
+    icon: ImageVector,
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val active = enabled && hovered
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (active) PortalColors.button.copy(alpha = 0.72f) else Color.Transparent)
+            .hoverable(interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val contentColor = when {
+            active -> PortalColors.text
+            enabled -> PortalColors.muted
+            else -> PortalColors.muted.copy(alpha = 0.46f)
+        }
+        Image(
+            painter = rememberVectorPainter(icon),
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            colorFilter = ColorFilter.tint(contentColor),
+        )
+        Text(
+            text = text,
+            color = contentColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+private const val AndroidLogSource = "androidLog"
+
+private val LogFilterTypes = listOf(
+    "content",
+    "tag",
+    "level",
+)
+
+private enum class LogFilterMenu {
+    Mode,
+    Type,
+}
+
+internal data class LogFilterRule(
+    val mode: NetworkFilterMode,
+    val type: String,
+    val value: String,
+)
+
+internal data class LogHighlightMatch(
+    val query: String,
+)
+
+private fun List<LogFilterRule>.signature(): String =
+    joinToString("\u001E") { "${it.mode.name}\u001F${it.type}\u001F${it.value}" }
+
+private fun List<LogFilterRule>.matchesLogEntry(entry: PortalLogEntry): Boolean {
+    val includeRules = rulesFor(NetworkFilterMode.Include)
+    val excludeRules = rulesFor(NetworkFilterMode.Exclude)
+    return includeRules.matchesGrouped(entry, emptyRulesMatch = true) &&
+        !excludeRules.any { it.matches(entry) }
+}
+
+private fun List<LogFilterRule>.firstHighlightFor(entry: PortalLogEntry): LogHighlightMatch? =
+    rulesFor(NetworkFilterMode.Highlight)
+        .firstOrNull { it.matches(entry) }
+        ?.let { LogHighlightMatch(query = it.value.trim()) }
+
+private fun List<LogFilterRule>.rulesFor(mode: NetworkFilterMode): List<LogFilterRule> =
+    filter { it.mode == mode && it.value.isNotBlank() }
+
+private fun List<LogFilterRule>.matchesGrouped(
+    entry: PortalLogEntry,
+    emptyRulesMatch: Boolean,
+): Boolean {
+    if (isEmpty()) return emptyRulesMatch
+    return groupBy { it.type }.all { (_, fieldRules) ->
+        fieldRules.any { it.matches(entry) }
+    }
+}
+
+private fun LogFilterRule.matches(entry: PortalLogEntry): Boolean {
+    val needle = value.trim()
+    if (needle.isBlank()) return true
+    return when (type) {
+        "content" -> entry.logContentFields().any { it.contains(needle, ignoreCase = true) }
+        "tag" -> entry.tag.orEmpty().contains(needle, ignoreCase = true)
+        "level" -> entry.level.contains(needle, ignoreCase = true) ||
+            logLevelInitial(entry.level).equals(needle, ignoreCase = true)
+        else -> false
+    }
+}
+
+private fun PortalLogEntry.logContentFields(): List<String> =
+    listOfNotNull(
+        message,
+        throwable,
+        logLine(),
+        threadName,
+    ).filter { it.isNotBlank() }
+
+private fun LogFilterRule.label(): String =
+    "${mode.label} \"$value\" in ${type.logFilterTypeLabel()}"
+
+private fun String.logFilterTypeLabel(): String =
+    when (this) {
+        "content" -> "content"
+        "tag" -> "tag"
+        "level" -> "level"
+        else -> this
+    }
 
 @Composable
 internal fun LogsTimelineHeader(loading: Boolean) {
@@ -396,6 +711,7 @@ internal fun LogEntryRow(
     nowEpochMillis: Long,
     timezoneOffsetMinutes: Long,
     use12HourClock: Boolean,
+    highlight: LogHighlightMatch?,
 ) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
     var showActualTime by remember(entry.id) { mutableStateOf(false) }
@@ -409,11 +725,17 @@ internal fun LogEntryRow(
     } else {
         relativeTime
     }
+    val rowBackground = if (highlight != null) {
+        PortalColors.warning.copy(alpha = 0.10f)
+    } else {
+        Color.Transparent
+    }
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(4.dp))
+                .background(rowBackground)
                 .clickable { expanded = !expanded }
                 .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -533,7 +855,6 @@ internal fun LogEntryDetails(entry: PortalLogEntry) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         LogDetailLine("level", entry.level)
-        LogDetailLine("source", entry.source.logSourceLabel())
         entry.stream?.takeIf { it.isNotBlank() }?.let { LogDetailLine("stream", it) }
         entry.tag?.takeIf { it.isNotBlank() }?.let { LogDetailLine("tag", it) }
         entry.location?.let { LogDetailLine("location", it.detailLabel()) }

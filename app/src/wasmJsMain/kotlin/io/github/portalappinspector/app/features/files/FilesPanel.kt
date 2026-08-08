@@ -77,8 +77,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sebastianneubauer.jsontree.JsonTree
-import com.sebastianneubauer.jsontree.TreeState
 import io.github.portalappinspector.app.data.*
 import io.github.portalappinspector.app.ui.*
 import io.github.portalappinspector.app.ui.icons.*
@@ -557,7 +555,7 @@ internal data class FilePathSegment(
 )
 
 internal fun filePathSegments(path: String?): List<FilePathSegment> {
-    if (path.isNullOrBlank()) return listOf(FilePathSegment(label = "Roots", path = null))
+    if (path.isNullOrBlank()) return listOf(FilePathSegment(label = "All", path = null))
     val trimmed = path.trim()
     val root = trimmed.substringBefore("/", missingDelimiterValue = trimmed)
     val rootSegment = if (trimmed.contains("/")) "$root/" else root
@@ -810,8 +808,6 @@ internal fun FileTextViewer(
     enabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val lines = remember(file.text) { file.text.lines().ifEmpty { listOf("") } }
-    val jsonBody = remember(file.text) { formatJsonOrNull(file.text) }
     Column(modifier = modifier) {
         if (showParentRow) {
             ParentDirectoryRow(
@@ -819,61 +815,13 @@ internal fun FileTextViewer(
                 enabled = enabled,
             )
         }
-        if (jsonBody != null) {
-            JsonTree(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(top = 10.dp)
-                    .background(PortalColors.codeInput, RoundedCornerShape(6.dp))
-                    .border(1.dp, PortalColors.codeInputBorder, RoundedCornerShape(6.dp)),
-                json = jsonBody,
-                onLoading = { PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 42.dp, height = 16.dp)) },
-                initialState = TreeState.EXPANDED,
-                contentPadding = PaddingValues(12.dp),
-                colors = PortalJsonTreeColors,
-                textStyle = TextStyle(
-                    color = PortalColors.text,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                ),
-                showIndices = true,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(top = 10.dp)
-                    .background(PortalColors.codeInput, RoundedCornerShape(6.dp))
-                    .border(1.dp, PortalColors.codeInputBorder, RoundedCornerShape(6.dp)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                itemsIndexed(lines) { index, line ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = (index + 1).toString(),
-                            color = PortalColors.muted.copy(alpha = 0.55f),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.End,
-                            modifier = Modifier.width(42.dp),
-                        )
-                        Text(
-                            text = line.ifEmpty { " " },
-                            color = PortalColors.text,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                        )
-                    }
-                }
-            }
-        }
+        JsonText(
+            jsonString = file.text,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+        )
     }
 }
 

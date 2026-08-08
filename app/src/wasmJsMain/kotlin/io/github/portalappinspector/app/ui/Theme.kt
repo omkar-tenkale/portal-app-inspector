@@ -6,16 +6,16 @@ import androidx.compose.ui.graphics.Color
 import com.sebastianneubauer.jsontree.TreeColors
 
 internal val PortalJsonTreeColors = TreeColors(
-    keyColor = Color(0xFF9CDCFE),
-    stringValueColor = Color(0xFFCE9178),
-    numberValueColor = Color(0xFFB5CEA8),
-    booleanValueColor = Color(0xFF569CD6),
-    nullValueColor = Color(0xFF569CD6),
-    indexColor = Color(0xFF858585),
-    symbolColor = Color(0xFFD4D4D4),
-    iconColor = Color(0xFF9AA0A6),
-    highlightColor = Color(0x664B5563),
-    selectedHighlightColor = Color(0xFF264F78),
+    keyColor = Color(0xFFDCEBFA),
+    stringValueColor = Color(0xFFA6D854),
+    numberValueColor = Color(0xFF6CB6FF),
+    booleanValueColor = Color(0xFF6CB6FF),
+    nullValueColor = Color(0xFF6CB6FF),
+    indexColor = Color(0xFF8A949E),
+    symbolColor = Color(0xFFD4D9DE),
+    iconColor = Color(0xFFC8D0D8),
+    highlightColor = Color(0xFF755C18),
+    selectedHighlightColor = Color(0xFFFFC01E),
 )
 
 internal object PortalColors {

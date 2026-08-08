@@ -29,12 +29,15 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.jsonArray
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,17 +55,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sebastianneubauer.jsontree.JsonTree
-import com.sebastianneubauer.jsontree.TreeState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -93,9 +97,10 @@ internal fun NetworkPanel(
     var bodySheetCall by remember { mutableStateOf<PortalNetworkCall?>(null) }
     var mockEditorInitial by remember { mutableStateOf<PortalNetworkMock?>(null) }
     var mocksSheetOpen by remember { mutableStateOf(false) }
+    var filterMode by remember(connection) { mutableStateOf(NetworkFilterMode.Include) }
     var filterType by remember(connection) { mutableStateOf(NetworkFilterTypes.first()) }
     var filterValue by remember(connection) { mutableStateOf("") }
-    var filters by remember(connection) { mutableStateOf(emptyList<PortalNetworkMockMatcher>()) }
+    var filters by remember(connection) { mutableStateOf(emptyList<NetworkFilterRule>()) }
     val calls = remember(connection) { mutableStateListOf<PortalNetworkCall>() }
     val networkListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
@@ -104,10 +109,8 @@ internal fun NetworkPanel(
     val mockScope = rememberCoroutineScope()
     val mockPackageKey = sourcePackageName ?: connection.baseUrl
     var mocks by remember(mockPackageKey) { mutableStateOf(PortalNetworkMockStore.load(mockPackageKey)) }
-    val filteredCalls = calls.asReversed().filter { call ->
-        filters.all { filter -> filter.matches(call) }
-    }
-    val networkGapThresholdMillis = if (filters.isNotEmpty()) {
+    val filteredCalls = calls.asReversed().filter { call -> filters.matchesNetworkCall(call) }
+    val networkGapThresholdMillis = if (filters.any { it.mode != NetworkFilterMode.Highlight }) {
         FilteredNetworkGapThresholdMillis
     } else {
         NetworkGapThresholdMillis
@@ -191,30 +194,39 @@ internal fun NetworkPanel(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(18.dp),
+        modifier = Modifier.fillMaxSize(),
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, top = 6.dp, end = 8.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 NetworkFilterBar(
                     filters = filters,
+                    filterMode = filterMode,
                     filterType = filterType,
                     filterValue = filterValue,
+                    onFilterModeChange = { filterMode = it },
                     onFilterTypeChange = {
                         filterType = it
                         filterValue = ""
                     },
                     onFilterValueChange = { filterValue = it },
-                    onAddFilter = { selectedType ->
-                        val nextFilter = PortalNetworkMockMatcher(
-                            type = selectedType,
-                            value = filterValue.trim(),
+                    onAddFilter = { selectedMode, selectedType ->
+                        val nextFilter = NetworkFilterRule(
+                            mode = selectedMode,
+                            matcher = PortalNetworkMockMatcher(
+                                type = selectedType,
+                                value = filterValue.trim(),
+                            ),
                         )
-                        if (nextFilter.value.isNotBlank()) {
+                        if (nextFilter.matcher.value.isNotBlank()) {
                             filters = filters + nextFilter
                             filterValue = ""
                         }
@@ -224,34 +236,34 @@ internal fun NetworkPanel(
                     },
                     modifier = Modifier.weight(1f),
                 )
-                PortalButton(
-                    text = "Mocks (${mocks.count { it.enabled }})",
+                NetworkPanelToolbarDivider()
+                NetworkDetailActionButton(
+                    icon = PortalTabIcons.Mock,
+                    text = "Mocks ${mocks.count { it.enabled }}",
                     onClick = { mocksSheetOpen = true },
                     enabled = enabled,
+                    modifier = Modifier.height(28.dp),
                 )
-                Spacer(Modifier.width(8.dp))
-                PortalButton(
+                NetworkDetailActionButton(
+                    icon = PortalTabIcons.Delete,
                     text = "Clear",
                     onClick = {
                         lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
                         calls.clear()
                     },
                     enabled = calls.isNotEmpty(),
+                    modifier = Modifier.height(28.dp),
                 )
             }
             if (!enabled) {
                 StatusCard("Network plugin unavailable", "Install the portal-network plugin in the source app.", PortalColors.warning)
                 return@Column
             }
-            NetworkTimelineHeader(loading)
             error?.let {
                 StatusCard("Network request failed", it, PortalColors.error)
             }
             mockSyncError?.let {
                 StatusCard("Mock sync failed", it, PortalColors.warning)
-            }
-            if (loading && calls.isEmpty()) {
-                PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 48.dp, height = 18.dp))
             }
             if (calls.isEmpty() && !loading) {
                 StatusCard("No traffic captured", "Trigger a Retrofit request in the source app.", PortalColors.muted)
@@ -263,6 +275,11 @@ internal fun NetworkPanel(
                 modifier = Modifier.fillMaxSize(),
                 state = networkListState,
             ) {
+                filteredCalls.firstOrNull()?.let { latestCall ->
+                    item(key = "network-live-gap") {
+                        LogGapRow(networkDisplayNowEpochMillis - latestCall.timestampEpochMillis)
+                    }
+                }
                 items(networkRows, key = { it.key }) { row ->
                     when (row) {
                         is PortalNetworkRow.Call -> NetworkCallRow(
@@ -270,6 +287,7 @@ internal fun NetworkPanel(
                             nowEpochMillis = networkDisplayNowEpochMillis,
                             timezoneOffsetMinutes = timezoneOffsetMinutes,
                             use12HourClock = use12HourClock,
+                            highlight = filters.firstHighlightFor(row.call),
                             onViewBody = { bodySheetCall = row.call },
                         )
                         is PortalNetworkRow.Gap -> LogGapRow(row.durationMillis)
@@ -331,58 +349,17 @@ internal fun NetworkPanel(
     }
 }
 
-@Composable
-internal fun NetworkTimelineHeader(loading: Boolean) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(PortalColors.border.copy(alpha = 0.72f)),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = 6.dp, bottom = 1.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(Modifier.width(92.dp))
-            Spacer(Modifier.width(10.dp))
-            Box(
-                modifier = Modifier.size(width = 34.dp, height = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                PulsatingDots(
-                    color = if (loading) PortalColors.accent else PortalColors.muted,
-                    dotDiameter = 4.dp,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = "Listening for network traffic",
-                color = PortalColors.muted.copy(alpha = 0.9f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NetworkFilterBar(
-    filters: List<PortalNetworkMockMatcher>,
+    filters: List<NetworkFilterRule>,
+    filterMode: NetworkFilterMode,
     filterType: String,
     filterValue: String,
+    onFilterModeChange: (NetworkFilterMode) -> Unit,
     onFilterTypeChange: (String) -> Unit,
     onFilterValueChange: (String) -> Unit,
-    onAddFilter: (String) -> Unit,
+    onAddFilter: (NetworkFilterMode, String) -> Unit,
     onDeleteFilter: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -392,11 +369,13 @@ internal fun NetworkFilterBar(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         filters.withIndex().forEach { indexedFilter ->
-            ConditionChip(matcher = indexedFilter.value, onDelete = { onDeleteFilter(indexedFilter.index) })
+            NetworkFilterChip(rule = indexedFilter.value, onDelete = { onDeleteFilter(indexedFilter.index) })
         }
         NetworkFilterAddRow(
+            mode = filterMode,
             type = filterType,
             value = filterValue,
+            onModeChange = onFilterModeChange,
             onTypeChange = onFilterTypeChange,
             onValueChange = onFilterValueChange,
             onAdd = onAddFilter,
@@ -406,11 +385,13 @@ internal fun NetworkFilterBar(
 
 @Composable
 internal fun NetworkFilterAddRow(
+    mode: NetworkFilterMode,
     type: String,
     value: String,
+    onModeChange: (NetworkFilterMode) -> Unit,
     onTypeChange: (String) -> Unit,
     onValueChange: (String) -> Unit,
-    onAdd: (String) -> Unit,
+    onAdd: (NetworkFilterMode, String) -> Unit,
 ) {
     val selectedType = type.takeIf { it in NetworkFilterTypes } ?: NetworkFilterTypes.first()
     LaunchedEffect(type) {
@@ -418,36 +399,55 @@ internal fun NetworkFilterAddRow(
             onTypeChange(NetworkFilterTypes.first())
         }
     }
-    var expanded by remember { mutableStateOf(false) }
+    var activeMenu by remember { mutableStateOf(NetworkFilterMenu.Mode) }
+    var menuVisible by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.widthIn(max = 460.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .height(30.dp)
-                .widthIn(max = 292.dp)
+                .widthIn(max = 390.dp)
                 .background(PortalColors.button, RoundedCornerShape(14.dp))
                 .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
                 .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
         ) {
+            NetworkFilterModeSelector(
+                selected = mode,
+                expanded = menuVisible && activeMenu == NetworkFilterMenu.Mode,
+                onClick = {
+                    if (activeMenu == NetworkFilterMenu.Mode) {
+                        menuVisible = !menuVisible
+                    } else {
+                        activeMenu = NetworkFilterMenu.Mode
+                        menuVisible = true
+                    }
+                },
+            )
             InlineConditionTextField(
                 value = value,
                 onValueChange = onValueChange,
-                onSubmit = { if (value.isNotBlank()) onAdd(selectedType) },
+                onSubmit = { if (value.isNotBlank()) onAdd(mode, selectedType) },
                 modifier = Modifier.width(110.dp),
             )
             Text("in", color = PortalColors.muted, fontSize = 12.sp)
             ConditionTypeSelector(
                 selected = selectedType,
-                expanded = expanded,
-                onClick = { expanded = !expanded },
-                modifier = Modifier.width(78.dp),
+                expanded = menuVisible && activeMenu == NetworkFilterMenu.Type,
+                onClick = {
+                    if (activeMenu == NetworkFilterMenu.Type) {
+                        menuVisible = !menuVisible
+                    } else {
+                        activeMenu = NetworkFilterMenu.Type
+                        menuVisible = true
+                    }
+                },
             )
             Box(
                 modifier = Modifier
                     .size(18.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(enabled = value.isNotBlank()) { onAdd(selectedType) },
+                    .clickable(enabled = value.isNotBlank()) { onAdd(mode, selectedType) },
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
@@ -459,21 +459,36 @@ internal fun NetworkFilterAddRow(
             }
         }
         AnimatedVisibility(
-            visible = expanded,
+            visible = menuVisible,
             enter = fadeIn(animationSpec = tween(120)) + expandVertically(animationSpec = tween(140)),
             exit = fadeOut(animationSpec = tween(90)) + shrinkVertically(animationSpec = tween(120)),
         ) {
-            ConditionTypeMenu(
-                options = NetworkFilterTypes,
-                selected = selectedType,
-                onSelect = {
-                    expanded = false
-                    onTypeChange(it)
-                },
-                modifier = Modifier.widthIn(max = 292.dp),
-            )
+            when (activeMenu) {
+                NetworkFilterMenu.Mode -> NetworkFilterModeMenu(
+                    selected = mode,
+                    onSelect = {
+                        menuVisible = false
+                        onModeChange(it)
+                    },
+                    modifier = Modifier.widthIn(max = 390.dp),
+                )
+                NetworkFilterMenu.Type -> ConditionTypeMenu(
+                    options = NetworkFilterTypes,
+                    selected = selectedType,
+                    onSelect = {
+                        menuVisible = false
+                        onTypeChange(it)
+                    },
+                    modifier = Modifier.widthIn(max = 390.dp),
+                )
+            }
         }
     }
+}
+
+private enum class NetworkFilterMenu {
+    Mode,
+    Type,
 }
 
 @Composable
@@ -482,9 +497,9 @@ internal fun NetworkCallRow(
     nowEpochMillis: Long,
     timezoneOffsetMinutes: Long,
     use12HourClock: Boolean,
+    highlight: NetworkHighlightMatch?,
     onViewBody: () -> Unit,
 ) {
-    val hasBody = call.responseBody != null
     var showActualTime by remember(call.id) { mutableStateOf(false) }
     val relativeTime = formatRelativeLogTime(call.timestampEpochMillis, nowEpochMillis)
     val timeText = if (showActualTime || relativeTime == null) {
@@ -499,7 +514,12 @@ internal fun NetworkCallRow(
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val pressed by interactionSource.collectIsPressedAsState()
-    val rowBackground = if (hovered || pressed) PortalColors.card else Color.Transparent
+    val rowBackground = when {
+        highlight != null && (hovered || pressed) -> PortalColors.warning.copy(alpha = 0.16f)
+        highlight != null -> PortalColors.warning.copy(alpha = 0.10f)
+        hovered || pressed -> PortalColors.card
+        else -> Color.Transparent
+    }
 
     Column(Modifier.fillMaxWidth()) {
         Column(
@@ -510,7 +530,7 @@ internal fun NetworkCallRow(
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
-                    onClick = { if (hasBody) onViewBody() },
+                    onClick = onViewBody,
                 )
                 .padding(end = 6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -518,7 +538,6 @@ internal fun NetworkCallRow(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 Text(
                     text = timeText,
@@ -543,8 +562,10 @@ internal fun NetworkCallRow(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                 )
+                Spacer(Modifier.width(7.dp))
                 if (call.isMocked) {
                     MockedBadge()
+                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     text = call.endpoint,
@@ -556,9 +577,57 @@ internal fun NetworkCallRow(
                     modifier = Modifier.weight(1f),
                 )
             }
+            highlight?.let {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spacer(Modifier.width(92.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(34.dp))
+                    Spacer(Modifier.width(12.dp))
+                    HighlightBadge(match = it, modifier = Modifier.weight(1f))
+                }
+            }
         }
         RowDivider()
     }
+}
+
+@Composable
+internal fun HighlightBadge(
+    match: NetworkHighlightMatch,
+    modifier: Modifier = Modifier,
+) {
+    val highlightText = remember(match) {
+        buildAnnotatedString {
+            append(match.snippet)
+            val index = match.snippet.indexOf(match.query, ignoreCase = true)
+            if (index >= 0) {
+                addStyle(
+                    style = SpanStyle(
+                        color = PortalColors.warning,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    start = index,
+                    end = index + match.query.length,
+                )
+            }
+        }
+    }
+    BasicText(
+        text = highlightText,
+        style = TextStyle(
+            color = PortalColors.text,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.SansSerif,
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -645,6 +714,9 @@ internal fun ResponseBodySheet(
     onOpenTab: () -> Unit,
     onMock: () -> Unit,
 ) {
+    var selectedSection by remember(call.id) { mutableStateOf(NetworkDetailSection.Overview) }
+    var menuExpanded by remember(call.id) { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -662,22 +734,560 @@ internal fun ResponseBodySheet(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {},
-                )
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                ),
         ) {
-            ResponseBodyHeader(
-                call = call,
-                actionText = "Open in new tab",
-                onAction = onOpenTab,
-                extraActionText = "Mock",
-                onExtraAction = onMock,
-                secondaryActionText = "Close",
-                onSecondaryAction = onDismiss,
+            NetworkDetailTopBar(
+                selectedSection = selectedSection,
+                menuExpanded = menuExpanded,
+                onToggleMenu = { menuExpanded = !menuExpanded },
+                onMock = onMock,
+                onOpenTab = onOpenTab,
+                onDismiss = onDismiss,
             )
-            ResponseBodyContent(call = call, modifier = Modifier.fillMaxSize())
+            RowDivider()
+            AnimatedVisibility(
+                visible = menuExpanded,
+                enter = fadeIn(animationSpec = tween(120)) + expandVertically(animationSpec = tween(140)),
+                exit = fadeOut(animationSpec = tween(90)) + shrinkVertically(animationSpec = tween(120)),
+            ) {
+                NetworkDetailSectionMenu(
+                    selected = selectedSection,
+                    onSelect = {
+                        selectedSection = it
+                        menuExpanded = false
+                    },
+                )
+            }
+            NetworkDetailContent(
+                call = call,
+                selectedSection = selectedSection,
+                onSectionSelect = { selectedSection = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(16.dp),
+            )
         }
     }
+}
+
+private enum class NetworkDetailSection(val label: String) {
+    Overview("Overview"),
+    Headers("Headers"),
+    RequestBody("Request body"),
+    ResponseBody("Response body"),
+}
+
+@Composable
+private fun NetworkDetailTopBar(
+    selectedSection: NetworkDetailSection,
+    menuExpanded: Boolean,
+    onToggleMenu: () -> Unit,
+    onMock: () -> Unit,
+    onOpenTab: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NetworkDetailSectionSelector(
+            selectedSection = selectedSection,
+            expanded = menuExpanded,
+            onClick = onToggleMenu,
+        )
+        Spacer(Modifier.weight(1f))
+        NetworkDetailActionButton(
+            icon = PortalTabIcons.Mock,
+            text = "Mock",
+            onClick = onMock,
+            modifier = Modifier.height(28.dp),
+        )
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 7.dp)
+                .width(1.dp)
+                .height(18.dp)
+                .background(PortalColors.border.copy(alpha = 0.85f)),
+        )
+        NetworkDetailIconButton(
+            icon = PortalTabIcons.OpenInNew,
+            onClick = onOpenTab,
+        )
+        NetworkDetailIconButton(
+            icon = PortalTabIcons.Close,
+            onClick = onDismiss,
+        )
+    }
+}
+
+@Composable
+private fun NetworkDetailSectionSelector(
+    selectedSection: NetworkDetailSection,
+    expanded: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (hovered) PortalColors.button.copy(alpha = 0.7f) else Color.Transparent)
+            .hoverable(interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp),
+    ) {
+        Text(
+            text = selectedSection.label,
+            color = PortalColors.text,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Image(
+            painter = rememberVectorPainter(if (expanded) PortalTabIcons.ArrowUp else PortalTabIcons.ArrowDown),
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            colorFilter = ColorFilter.tint(PortalColors.muted),
+        )
+    }
+}
+
+@Composable
+private fun NetworkDetailSectionMenu(
+    selected: NetworkDetailSection,
+    onSelect: (NetworkDetailSection) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .padding(start = 10.dp, bottom = 8.dp)
+            .widthIn(max = 640.dp)
+            .background(PortalColors.card, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+    ) {
+        NetworkDetailSection.values().forEach { section ->
+            Text(
+                text = section.label,
+                color = if (section == selected) PortalColors.accent else PortalColors.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(
+                        if (section == selected) PortalColors.button else Color.Transparent,
+                        RoundedCornerShape(10.dp),
+                    )
+                    .clickable { onSelect(section) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NetworkPanelToolbarDivider() {
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 1.dp, vertical = 5.dp)
+            .width(1.dp)
+            .height(18.dp)
+            .background(PortalColors.border.copy(alpha = 0.85f)),
+    )
+}
+
+@Composable
+private fun NetworkDetailActionButton(
+    icon: ImageVector,
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val active = enabled && hovered
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (active) PortalColors.button.copy(alpha = 0.72f) else Color.Transparent)
+            .hoverable(interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Image(
+            painter = rememberVectorPainter(icon),
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            colorFilter = ColorFilter.tint(
+                when {
+                    active -> PortalColors.text
+                    enabled -> PortalColors.muted
+                    else -> PortalColors.muted.copy(alpha = 0.46f)
+                },
+            ),
+        )
+        Text(
+            text = text,
+            color = when {
+                active -> PortalColors.text
+                enabled -> PortalColors.muted
+                else -> PortalColors.muted.copy(alpha = 0.46f)
+            },
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun NetworkDetailIconButton(
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (hovered) PortalColors.button.copy(alpha = 0.72f) else Color.Transparent)
+            .hoverable(interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = rememberVectorPainter(icon),
+            contentDescription = null,
+            modifier = Modifier.size(15.dp),
+            colorFilter = ColorFilter.tint(if (hovered) PortalColors.text else PortalColors.muted),
+        )
+    }
+}
+
+@Composable
+private fun NetworkDetailContent(
+    call: PortalNetworkCall,
+    selectedSection: NetworkDetailSection,
+    onSectionSelect: (NetworkDetailSection) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (selectedSection) {
+        NetworkDetailSection.Overview -> NetworkRequestOverview(
+            call = call,
+            onResponseBodyClick = { onSectionSelect(NetworkDetailSection.ResponseBody) },
+            modifier = modifier,
+        )
+        NetworkDetailSection.Headers -> NetworkHeadersPreview(
+            requestHeaders = call.requestHeaders,
+            responseHeaders = call.responseHeaders,
+            modifier = modifier,
+        )
+        NetworkDetailSection.RequestBody -> NetworkBodyPreview(
+            body = call.requestBody,
+            contentType = call.requestContentType,
+            emptyTitle = "No request body",
+            emptyMessage = "This network call did not include a captured request body.",
+            truncated = call.requestBodyTruncated,
+            modifier = modifier,
+        )
+        NetworkDetailSection.ResponseBody -> NetworkBodyPreview(
+            body = call.responseBody,
+            contentType = call.responseContentType,
+            emptyTitle = "No response body",
+            emptyMessage = "This network call did not include a captured response body.",
+            truncated = call.responseBodyTruncated,
+            modifier = modifier,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NetworkRequestOverview(
+    call: PortalNetworkCall,
+    onResponseBodyClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
+    val use12HourClock = remember { jsUses12HourClock() }
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                text = "${call.method} ${call.endpoint}",
+                color = PortalColors.text,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = call.url,
+                color = PortalColors.muted,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            NetworkOverviewMetric("Status", call.statusCode?.toString() ?: "ERR", networkStatusColor(call.statusCode))
+            NetworkOverviewMetric("Duration", "${call.durationMillis} ms")
+            NetworkOverviewMetric(
+                label = "Response size",
+                value = formatNetworkSize(call.responseBodySizeBytes),
+                onClick = onResponseBodyClick,
+            )
+            NetworkOverviewMetric("Request size", formatNetworkSize(call.requestBodySizeBytes))
+            NetworkOverviewMetric(
+                label = "Time",
+                value = formatAbsoluteLogTime(
+                    epochMillis = call.timestampEpochMillis,
+                    timezoneOffsetMinutes = timezoneOffsetMinutes,
+                    use12HourClock = use12HourClock,
+                ),
+            )
+            NetworkOverviewMetric("Response type", call.responseContentType ?: "-")
+            NetworkOverviewMetric("Request type", call.requestContentType ?: "-")
+            NetworkOverviewMetric("Mocked", if (call.isMocked) "Yes" else "No")
+        }
+        call.error?.let { error ->
+            StatusCard("Request error", error, PortalColors.error)
+        }
+        if (call.responseBodyTruncated || call.requestBodyTruncated) {
+            StatusCard("Captured body truncated", "One or more captured bodies were shortened by the source plugin.", PortalColors.warning)
+        }
+    }
+}
+
+@Composable
+private fun NetworkOverviewMetric(
+    label: String,
+    value: String,
+    valueColor: Color = PortalColors.text,
+    onClick: (() -> Unit)? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    Column(
+        modifier = Modifier
+            .width(168.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(
+                if (hovered && onClick != null) PortalColors.button else PortalColors.input.copy(alpha = 0.72f),
+            )
+            .border(
+                1.dp,
+                if (onClick != null) PortalColors.accent.copy(alpha = if (hovered) 0.7f else 0.38f) else PortalColors.inputBorder.copy(alpha = 0.7f),
+                RoundedCornerShape(7.dp),
+            )
+            .hoverable(interactionSource = interactionSource, enabled = onClick != null)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = onClick != null,
+                onClick = { onClick?.invoke() },
+            )
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = label,
+                color = if (hovered && onClick != null) PortalColors.text else PortalColors.muted,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (onClick != null) {
+                Image(
+                    painter = rememberVectorPainter(PortalTabIcons.ArrowRight),
+                    contentDescription = null,
+                    modifier = Modifier.size(10.dp),
+                    colorFilter = ColorFilter.tint(if (hovered) PortalColors.accent else PortalColors.muted),
+                )
+            }
+        }
+        Text(
+            text = value,
+            color = valueColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun NetworkHeadersPreview(
+    requestHeaders: Map<String, List<String>>,
+    responseHeaders: Map<String, List<String>>,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        NetworkLabeledTextPreview(
+            label = "Request headers",
+            value = requestHeaders.toNetworkHeaderText(),
+            emptyText = "No request headers captured.",
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
+        NetworkLabeledTextPreview(
+            label = "Response headers",
+            value = responseHeaders.toNetworkHeaderText(),
+            emptyText = "No response headers captured.",
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun NetworkLabeledTextPreview(
+    label: String,
+    value: String,
+    emptyText: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = label,
+            color = PortalColors.muted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+        NetworkPlainTextPreview(
+            value = value,
+            emptyText = emptyText,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun NetworkBodyPreview(
+    body: String?,
+    contentType: String?,
+    emptyTitle: String,
+    emptyMessage: String,
+    truncated: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (body == null) {
+        StatusCard(emptyTitle, emptyMessage, PortalColors.muted)
+        return
+    }
+    if (isJsonContentType(contentType)) {
+        JsonText(
+            jsonString = body,
+            modifier = modifier,
+            initialMode = JsonTextMode.Json,
+            containerColor = PortalColors.codeInput,
+            borderColor = if (truncated) PortalColors.warning.copy(alpha = 0.74f) else PortalColors.codeInputBorder,
+        )
+    } else {
+        NetworkPlainTextPreview(
+            value = body,
+            emptyText = "",
+            modifier = modifier,
+            borderColor = if (truncated) PortalColors.warning.copy(alpha = 0.74f) else PortalColors.codeInputBorder,
+        )
+    }
+}
+
+@Composable
+private fun NetworkPlainTextPreview(
+    value: String,
+    emptyText: String,
+    modifier: Modifier = Modifier,
+    borderColor: Color = PortalColors.codeInputBorder,
+) {
+    val textValue = value.ifBlank { emptyText }
+    val textScrollState = rememberScrollState()
+    BasicTextField(
+        value = textValue,
+        onValueChange = {},
+        readOnly = true,
+        textStyle = TextStyle(
+            color = if (value.isBlank()) PortalColors.muted else PortalColors.text,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        ),
+        cursorBrush = SolidColor(PortalColors.accent),
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(PortalColors.codeInput)
+            .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+            .verticalScroll(textScrollState),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp),
+            ) {
+                innerTextField()
+            }
+        },
+    )
+}
+
+private fun Map<String, List<String>>.toNetworkHeaderText(): String =
+    entries.joinToString("\n") { (name, values) ->
+        "$name: ${values.joinToString(", ")}"
+    }
+
+private fun isJsonContentType(contentType: String?): Boolean {
+    val normalized = contentType
+        ?.substringBefore(';')
+        ?.trim()
+        ?.lowercase()
+        ?: return false
+    return normalized == "application/json" || normalized.endsWith("+json")
 }
 
 @Composable
@@ -774,45 +1384,12 @@ internal fun ResponseBodyContent(
         return
     }
 
-    val jsonBody = remember(body) { formatJsonOrNull(body) }
-    if (jsonBody != null) {
-        JsonTree(
-            modifier = modifier
-                .background(PortalColors.background, RoundedCornerShape(6.dp))
-                .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp)),
-            json = jsonBody,
-            onLoading = { PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 42.dp, height = 16.dp)) },
-            initialState = TreeState.EXPANDED,
-            contentPadding = PaddingValues(12.dp),
-            colors = PortalJsonTreeColors,
-            textStyle = TextStyle(
-                color = PortalColors.text,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-            ),
-            showIndices = true,
-        )
-    } else {
-        val lines = remember(body) { body.lines() }
-        LazyColumn(
-            modifier = modifier
-                .background(PortalColors.background, RoundedCornerShape(6.dp))
-                .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            items(lines) { line ->
-                Text(
-                    text = line,
-                    color = PortalColors.text,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                )
-            }
-        }
-    }
+    JsonText(
+        jsonString = body,
+        modifier = modifier,
+        containerColor = PortalColors.codeInput,
+        borderColor = PortalColors.codeInputBorder,
+    )
 }
 
 @Composable
@@ -949,6 +1526,7 @@ internal fun NetworkMockEditorSheet(
         mutableStateOf(initialMock.response.body?.body.orEmpty())
     }
     var responseBodyMode by remember(initialMock.id) { mutableStateOf("txt") }
+    var responseEditorTab by remember(initialMock.id) { mutableStateOf("body") }
     var responseHeadersText by remember(initialMock.id) {
         mutableStateOf(initialMock.response.body?.headers?.toHeaderLines().orEmpty())
     }
@@ -1047,7 +1625,12 @@ internal fun NetworkMockEditorSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Setup Mock", color = PortalColors.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Setup Mock",
+                        color = PortalColors.text.copy(alpha = 0.88f),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                     Text(
                         "Set up fake responses to test your app in different conditions",
                         color = PortalColors.muted,
@@ -1071,7 +1654,6 @@ internal fun NetworkMockEditorSheet(
                 item {
                     MockEditorSection(
                         title = "Conditions",
-                        subtitle = "Request rules that activate this mock",
                     ) {
                         ConditionFlow(
                             matchers = matchers,
@@ -1113,7 +1695,6 @@ internal fun NetworkMockEditorSheet(
                 item {
                     MockEditorSection(
                         title = "Response",
-                        subtitle = if (responseMode == "body") "Return a captured or custom body" else "Simulate a network failure",
                         trailing = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 DelayCycleText(
@@ -1132,22 +1713,30 @@ internal fun NetworkMockEditorSheet(
                                     CompactTextField("Code", responseCode, { responseCode = it.filter(Char::isDigit).take(3) }, Modifier.width(96.dp))
                                     CompactTextField("Content-Type", responseContentType, { responseContentType = it }, Modifier.weight(1f))
                                 }
-                                PortalTextField(
-                                    value = responseHeadersText,
-                                    onValueChange = { responseHeadersText = it },
-                                    label = "Headers, one per line: Key: Value",
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    modifier = Modifier.fillMaxWidth(),
+                                MockResponseEditorTabs(
+                                    selected = responseEditorTab,
+                                    onChange = { responseEditorTab = it },
                                 )
-                                BodyEditor(
-                                    value = responseBody,
-                                    onValueChange = { responseBody = it },
-                                    mode = responseBodyMode,
-                                    onModeChange = { responseBodyMode = it },
-                                    onFormatValue = { responseBody = it },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                if (responseEditorTab == "headers") {
+                                    PortalTextField(
+                                        value = responseHeadersText,
+                                        onValueChange = { responseHeadersText = it },
+                                        label = "Headers, one per line: Key: Value",
+                                        minLines = 8,
+                                        maxLines = 12,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else {
+                                    BodyEditor(
+                                        value = responseBody,
+                                        onValueChange = { responseBody = it },
+                                        mode = responseBodyMode,
+                                        onModeChange = { responseBodyMode = it },
+                                        onFormatValue = { responseBody = it },
+                                        label = null,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1157,13 +1746,17 @@ internal fun NetworkMockEditorSheet(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(PortalColors.input, RoundedCornerShape(6.dp))
-                                            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(6.dp))
                                             .clickable { errorType = type }
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            .padding(horizontal = 4.dp, vertical = 5.dp),
                                     ) {
                                         PortalCheckbox(checked = errorType == type, onCheckedChange = { if (it) errorType = type })
-                                        Text(type, color = PortalColors.text, fontSize = 13.sp)
+                                        Text(
+                                            type,
+                                            color = if (errorType == type) PortalColors.text else PortalColors.muted,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (errorType == type) FontWeight.Medium else null,
+                                        )
                                     }
                                 }
                             }
@@ -1178,7 +1771,6 @@ internal fun NetworkMockEditorSheet(
 @Composable
 internal fun MockEditorSection(
     title: String,
-    subtitle: String,
     trailing: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -1195,7 +1787,6 @@ internal fun MockEditorSection(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = PortalColors.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = PortalColors.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             trailing?.invoke()
         }
@@ -1241,85 +1832,60 @@ internal fun DelayCycleText(
 }
 
 @Composable
+internal fun MockResponseEditorTabs(
+    selected: String,
+    onChange: (String) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(PortalColors.input)
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(8.dp))
+            .padding(2.dp),
+    ) {
+        ResponseModeTab(text = "Body", selected = selected == "body", onClick = { onChange("body") })
+        ResponseModeTab(text = "Headers", selected = selected == "headers", onClick = { onChange("headers") })
+    }
+}
+
+@Composable
 internal fun BodyEditor(
     value: String,
     onValueChange: (String) -> Unit,
     mode: String,
     onModeChange: (String) -> Unit,
     onFormatValue: (String) -> Unit,
+    label: String? = "Body",
     modifier: Modifier = Modifier,
 ) {
-    val jsonBody = remember(value) { formatJsonOrNull(value) }
-    val jsonValid = jsonBody != null
-    var jsonRejected by remember { mutableStateOf(false) }
-    var bodyModeSelection by remember { mutableStateOf(mode) }
-    LaunchedEffect(jsonValid, mode) {
-        if (!jsonValid && mode == "json") {
-            onModeChange("txt")
-        }
-    }
-    LaunchedEffect(mode, jsonRejected) {
-        if (!jsonRejected) {
-            bodyModeSelection = mode
-        }
-    }
-
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Body", color = PortalColors.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            BodyModeSelector(
-                mode = bodyModeSelection,
-                jsonRejected = jsonRejected,
-                onTxtClick = {
-                    jsonRejected = false
-                    bodyModeSelection = "txt"
-                    if (mode == "json" && jsonBody != null) {
-                        onFormatValue(jsonBody)
-                    }
-                    onModeChange("txt")
-                },
-                onJsonClick = {
-                    bodyModeSelection = "json"
-                    if (jsonValid) {
-                        jsonRejected = false
-                        onModeChange("json")
-                    } else {
-                        jsonRejected = true
-                    }
-                },
-            )
+        label?.let {
+            Text(it, color = PortalColors.muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
-        if (mode == "json" && jsonBody != null) {
-            JsonTree(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(214.dp)
-                    .background(PortalColors.input, RoundedCornerShape(6.dp))
-                    .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(6.dp)),
-                json = jsonBody,
-                onLoading = { PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 42.dp, height = 16.dp)) },
-                initialState = TreeState.EXPANDED,
-                contentPadding = PaddingValues(12.dp),
-                colors = PortalJsonTreeColors,
-                textStyle = TextStyle(
-                    color = PortalColors.text,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                ),
-                showIndices = true,
-            )
-        } else {
-            BodyCodeTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        JsonText(
+            jsonString = value,
+            onTextChange = onValueChange,
+            initialMode = if (mode == "json") JsonTextMode.Json else JsonTextMode.Text,
+            onModeChange = { nextMode ->
+                if (nextMode == JsonTextMode.Text && mode == "json") {
+                    formatJsonOrNull(value)?.let(onFormatValue)
+                }
+                onModeChange(if (nextMode == JsonTextMode.Json) "json" else "txt")
+            },
+            containerColor = PortalColors.input,
+            borderColor = PortalColors.inputBorder,
+            textStyle = TextStyle(
+                color = PortalColors.text,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(214.dp),
+        )
     }
 }
 
@@ -1438,6 +2004,45 @@ internal fun ConditionFlow(
 }
 
 @Composable
+internal fun NetworkFilterChip(
+    rule: NetworkFilterRule,
+    onDelete: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .height(30.dp)
+            .widthIn(max = 300.dp)
+            .background(PortalColors.button, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+            .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
+    ) {
+        Text(
+            text = "${rule.mode.label} ${rule.matcher.conditionChipLabel()}",
+            color = PortalColors.text,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = rememberVectorPainter(PortalTabIcons.Close),
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                colorFilter = ColorFilter.tint(PortalColors.muted),
+            )
+        }
+    }
+}
+
+@Composable
 internal fun ConditionChip(
     matcher: PortalNetworkMockMatcher,
     onDelete: () -> Unit,
@@ -1537,7 +2142,6 @@ internal fun ConditionAddRow(
                 selected = selectedType,
                 expanded = expanded,
                 onClick = { expanded = !expanded },
-                modifier = Modifier.width(78.dp),
             )
             Box(
                 modifier = Modifier
@@ -1566,11 +2170,65 @@ internal fun ConditionAddRow(
                     expanded = false
                     onTypeChange(it)
                 },
-                modifier = Modifier.widthIn(max = 292.dp),
+                modifier = Modifier.widthIn(max = 460.dp),
             )
         }
     }
     Spacer(Modifier.height(10.dp))
+}
+
+@Composable
+internal fun NetworkFilterModeSelector(
+    selected: NetworkFilterMode,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = modifier
+            .height(24.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 3.dp),
+    ) {
+        Text(selected.label, color = PortalColors.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Image(
+            painter = rememberVectorPainter(if (expanded) PortalTabIcons.ArrowUp else PortalTabIcons.ArrowDown),
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            colorFilter = ColorFilter.tint(PortalColors.muted),
+        )
+    }
+}
+
+@Composable
+internal fun NetworkFilterModeMenu(
+    selected: NetworkFilterMode,
+    onSelect: (NetworkFilterMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .background(PortalColors.card, RoundedCornerShape(14.dp))
+            .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+    ) {
+        NetworkFilterMode.values().forEach { option ->
+            Text(
+                text = option.label,
+                color = if (option == selected) PortalColors.accent else PortalColors.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                modifier = Modifier
+                    .background(if (option == selected) PortalColors.button else Color.Transparent, RoundedCornerShape(10.dp))
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -1582,13 +2240,14 @@ internal fun ConditionTypeSelector(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         modifier = modifier
             .height(24.dp)
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 3.dp),
     ) {
-        Text(selected.matcherLabel(), color = PortalColors.text, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(selected.matcherLabel(), color = PortalColors.text, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Image(
             painter = rememberVectorPainter(if (expanded) PortalTabIcons.ArrowUp else PortalTabIcons.ArrowDown),
             contentDescription = null,
@@ -1633,16 +2292,16 @@ internal fun ResponseModeTabs(
     onChange: (String) -> Unit,
 ) {
     Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         modifier = Modifier
-            .width(184.dp)
-            .height(34.dp)
+            .height(32.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(PortalColors.input)
             .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(8.dp))
             .padding(2.dp),
     ) {
-        ResponseModeTab(text = "Body", selected = responseMode == "body", onClick = { onChange("body") }, modifier = Modifier.weight(1f))
-        ResponseModeTab(text = "Error", selected = responseMode == "error", onClick = { onChange("error") }, modifier = Modifier.weight(1f))
+        ResponseModeTab(text = "Body", selected = responseMode == "body", onClick = { onChange("body") })
+        ResponseModeTab(text = "Error", selected = responseMode == "error", onClick = { onChange("error") })
     }
 }
 
@@ -1655,16 +2314,17 @@ internal fun ResponseModeTab(
 ) {
     Box(
         modifier = modifier
-            .fillMaxSize()
+            .height(28.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (selected) PortalColors.success else Color.Transparent)
-            .clickable(onClick = onClick),
+            .background(if (selected) PortalColors.button else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = if (selected) PortalColors.submitText else PortalColors.muted,
-            fontSize = 13.sp,
+            color = if (selected) PortalColors.accent else PortalColors.muted,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
         )
     }

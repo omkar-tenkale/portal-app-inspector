@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicLong
 class PortalLogsPlugin : PortalPlugin {
     override val id: String = "portal-logs"
     override val name: String = "Logs"
-    override val version: String = "0.1.0"
+    override val version = 260809L
 
     override suspend fun handle(request: PortalPluginRequest): PortalPluginResponse {
         val operation = request.payload["type"]?.jsonPrimitive?.contentOrNull

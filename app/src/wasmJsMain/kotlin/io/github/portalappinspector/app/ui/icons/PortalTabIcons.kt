@@ -204,6 +204,32 @@ internal object PortalTabIcons {
         )
     }
 
+    val OpenInNew: ImageVector by lazy {
+        strokeIcon(
+            name = "OpenInNew",
+            viewportSize = 48f,
+            strokeWidth = 4f,
+            pathData = listOf(
+                "M19 6H9C7.34315 6 6 7.34315 6 9V39C6 40.6569 7.34315 42 9 42H39C40.6569 42 42 40.6569 42 39V29",
+                "M42 19L38 7L26 11",
+                "M38 7C33 22 30 25 20 29",
+            ),
+        )
+    }
+
+    val Mock: ImageVector by lazy {
+        strokeIcon(
+            name = "Mock",
+            viewportSize = 48f,
+            strokeWidth = 4f,
+            pathData = listOf(
+                "M16 7H32",
+                "M20 7V19L10 36C8.43054 38.6679 10.3546 42 13.4497 42H34.5503C37.6454 42 39.5695 38.6679 38 36L28 19V7",
+                "M15 31H33",
+            ),
+        )
+    }
+
     val Plus: ImageVector by lazy {
         strokeIcon(
             name = "Plus",

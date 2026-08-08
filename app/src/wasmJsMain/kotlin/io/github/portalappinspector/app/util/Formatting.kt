@@ -43,18 +43,21 @@ internal fun formatAbsoluteLogTime(
     val seconds = secondsOfDay % 60L
     if (use12HourClock) {
         val hour12 = (hours % 12L).takeIf { it != 0L } ?: 12L
-        val suffix = if (hours < 12L) "AM" else "PM"
-        return "$hour12:${minutes.twoDigits()}:${seconds.twoDigits()} $suffix"
+        return "$hour12:${minutes.twoDigits()}:${seconds.twoDigits()}"
     }
     return "${hours.twoDigits()}:${minutes.twoDigits()}:${seconds.twoDigits()}"
 }
 
 internal fun formatLogGap(durationMillis: Long): String {
     val seconds = (durationMillis / 1_000L).coerceAtLeast(1L)
-    return if (seconds < 60L) {
-        "$seconds sec"
-    } else {
-        "${seconds / 60L} min"
+    val minutes = seconds / 60L
+    val hours = minutes / 60L
+    val days = hours / 24L
+    return when {
+        seconds < 60L -> "$seconds sec"
+        minutes < 60L -> "$minutes min"
+        hours < 24L -> "$hours hr"
+        else -> "$days day"
     }
 }
 

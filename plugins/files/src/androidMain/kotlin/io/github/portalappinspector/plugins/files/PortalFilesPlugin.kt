@@ -19,7 +19,7 @@ import java.io.File
 class PortalFilesPlugin : PortalPlugin {
     override val id: String = "portal:files"
     override val name: String = "Files"
-    override val version: String = "0.1.0"
+    override val version = 260809L
 
     override suspend fun handle(request: PortalPluginRequest): PortalPluginResponse {
         val operation = request.payload["type"]?.jsonPrimitive?.contentOrNull
