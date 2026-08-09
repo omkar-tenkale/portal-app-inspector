@@ -5,6 +5,7 @@ android-demo-minSdk = "23"
 android-minSdk = "21"
 android-targetSdk = "36"
 androidx-activity = "1.13.0"
+androidx-dynamicanimation = "1.1.0"
 composeMultiplatform = "1.11.1"
 docklayout = "-SNAPSHOT"
 jsonTree = "2.7.0"
@@ -18,6 +19,7 @@ pine = "0.3.0"
 retrofit = "2.11.0"
 
 [libraries]
+androidx-dynamicanimation = { module = "androidx.dynamicanimation:dynamicanimation", version.ref = "androidx-dynamicanimation" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }

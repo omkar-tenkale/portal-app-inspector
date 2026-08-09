@@ -36,6 +36,7 @@ kotlin {
             implementation(libs.nanohttpd)
             implementation(libs.nanohttpd.websocket)
             implementation(libs.pine.core)
+            implementation(libs.androidx.dynamicanimation)
         }
     }
 }
