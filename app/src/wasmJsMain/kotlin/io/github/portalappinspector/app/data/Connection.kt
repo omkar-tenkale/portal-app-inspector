@@ -1,13 +1,8 @@
 package io.github.portalappinspector.app.data
 
-import androidx.compose.runtime.key
-import androidx.compose.ui.input.key.key
 import io.github.portalappinspector.PortalManifest
-import io.ktor.client.request.get
 import kotlinx.browser.window
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import io.github.portalappinspector.app.util.*
 
 @Serializable
@@ -23,28 +18,14 @@ internal data class PortalConnection(
 
     fun adbForwardCommand(): String =
         "adb forward tcp:$port tcp:$port"
-
-    companion object {
-        @OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-        fun cleanConnectUrl(mobileView: Boolean) {
-            val path = window.location.pathname
-            val cleanPath = when {
-                path.endsWith("/connect") -> path.removeSuffix("connect")
-                path.endsWith("/connect/") -> path.removeSuffix("connect/")
-                else -> path
-            }.ifBlank { "/" }
-            val cleanQuery = if (mobileView) "?mobileView=true" else ""
-            val cleanUrl = cleanPath + cleanQuery + window.location.hash
-            window.history.replaceState(null, "", cleanUrl)
-        }
-    }
 }
 
 internal data class PortalLaunchParams(
     val connection: PortalConnection?,
     val mobileView: Boolean,
     val isEmulator: Boolean,
-    val sourcePackageName: String?,
+    val appId: String?,
+    val platform: String?,
 ) {
     companion object {
         fun fromUrl(): PortalLaunchParams {
@@ -61,9 +42,8 @@ internal data class PortalLaunchParams(
                 .mapKeys { (key, _) -> key.normalizedQueryKey() }
             val mobileView = normalizedParams["mobileview"]?.isTruthyQueryValue() == true
             val isEmulator = normalizedParams["isemulator"]?.isTruthyQueryValue() == true
-            val sourcePackageName = normalizedParams["sourcepackagename"]
-                ?: normalizedParams["packagename"]
-                ?: normalizedParams["appid"]
+            val appId = normalizedParams["appid"]
+            val platform = normalizedParams["platform"]
             val connection = normalizedParams["host"]
                 ?.takeIf { it.isNotBlank() }
                 ?.let { host ->
@@ -72,12 +52,12 @@ internal data class PortalLaunchParams(
                         port = normalizedParams["port"] ?: "4896",
                     )
                 }
-            PortalConnection.cleanConnectUrl(mobileView)
             return PortalLaunchParams(
                 connection = connection,
                 mobileView = mobileView,
                 isEmulator = isEmulator,
-                sourcePackageName = sourcePackageName,
+                appId = appId,
+                platform = platform,
             )
         }
 
@@ -103,11 +83,12 @@ internal fun decodeURIComponent(value: String): String =
 
 @Serializable
 internal data class SavedPortalConnection(
-    val packageName: String,
+    val appId: String,
     val appName: String,
+    val platform: String,
     val appIconPngBase64: String? = null,
     val connection: PortalConnection,
-    val updatedAtEpochMillis: Long,
+    val updatedAt: Long,
 ) {
     fun toPortalConnection(): PortalConnection =
         connection
@@ -120,25 +101,26 @@ internal object PortalConnectionStore {
         runCatching {
             val raw = window.localStorage.getItem(StorageKey) ?: return emptyList()
             StorageJson.decodeFromString<List<SavedPortalConnection>>(raw)
-                .sortedByDescending { it.updatedAtEpochMillis }
+                .sortedByDescending { it.updatedAt }
         }.getOrDefault(emptyList())
 
     fun latest(): SavedPortalConnection? =
-        load().maxByOrNull { it.updatedAtEpochMillis }
+        load().maxByOrNull { it.updatedAt }
 
     fun upsert(
         manifest: PortalManifest,
         connection: PortalConnection,
     ): List<SavedPortalConnection> {
         val next = SavedPortalConnection(
-            packageName = manifest.sourcePackageName,
+            appId = manifest.appId,
             appName = manifest.appName,
+            platform = manifest.platform,
             appIconPngBase64 = manifest.appIconPngBase64,
             connection = connection,
-            updatedAtEpochMillis = nowEpochMillis(),
+            updatedAt = nowEpochMillis(),
         )
-        val updated = (load().filterNot { it.packageName == next.packageName } + next)
-            .sortedByDescending { it.updatedAtEpochMillis }
+        val updated = (load().filterNot { it.appId == next.appId } + next)
+            .sortedByDescending { it.updatedAt }
         runCatching {
             window.localStorage.setItem(StorageKey, StorageJson.encodeToString(updated))
         }
@@ -146,7 +128,17 @@ internal object PortalConnectionStore {
     }
 }
 
-internal fun List<SavedPortalConnection>.matchingPackage(packageName: String): SavedPortalConnection? =
+internal fun List<SavedPortalConnection>.matchingPackage(appId: String): SavedPortalConnection? =
     firstOrNull {
-        it.packageName == packageName
+        it.appId == appId
     }
+
+@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+internal fun navigateToApp(appId: String) {
+    val nextPath = "/?appId=${queryEncoded(appId)}"
+    window.history.replaceState(null, "", nextPath)
+}
+
+@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+internal fun queryEncoded(value: String): String =
+    js("encodeURIComponent(value)")

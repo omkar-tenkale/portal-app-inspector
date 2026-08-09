@@ -75,3 +75,7 @@ The Portal web UI is deployed from GitHub Actions on pushes to `main`.
 ```text
 https://omkar-tenkale.github.io/portal-app-inspector/connect
 ```
+
+```
+(lsof -ti tcp:8080 -sTCP:LISTEN | xargs kill -9 2>/dev/null || true) && ./gradlew :app:wasmJsBrowserDevelopmentRun --continuous
+```

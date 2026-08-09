@@ -70,9 +70,9 @@ data class PortalRpcBatchResponse(
 @Serializable
 data class PortalManifest(
     val protocolVersion: Int,
-    val sourceName: String,
-    val sourcePackageName: String,
+    val appId: String,
     val appName: String,
+    val platform: String,
     val appIconPngBase64: String? = null,
     val plugins: List<PortalPluginManifest>,
 )
@@ -87,8 +87,7 @@ data class PortalPluginManifest(
 @Serializable
 data class PortalHealth(
     val ok: Boolean,
-    val sourceName: String,
-    val sourcePackageName: String,
+    val appId: String,
     val appName: String,
     val protocolVersion: Int,
 )

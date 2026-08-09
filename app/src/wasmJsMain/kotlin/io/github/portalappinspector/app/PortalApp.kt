@@ -1,7 +1,6 @@
 package io.github.portalappinspector.app
 
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -20,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.zIndex
 import io.github.docklayout.DockLayout
 import io.github.docklayout.rememberDockState
@@ -49,6 +47,8 @@ internal fun PortalApp() {
     CompositionLocalProvider(LocalToastHost provides toastHost) {
         val launchParams = remember { PortalLaunchParams.fromUrl() }
         val mobileView = launchParams.mobileView
+        val appId = launchParams.appId
+        val platform = launchParams.platform
         val initialConnection = remember(launchParams) {
             launchParams.connection
                 ?: PortalConnectionStore.latest()?.toPortalConnection()
@@ -64,10 +64,11 @@ internal fun PortalApp() {
         var showSetupRequired by remember { mutableStateOf(false) }
         var layoutRevision by remember { mutableStateOf(0) }
         var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
-        var persistedLayout by remember { mutableStateOf(DockLayoutPersistence.load()) }
         val filesPanelState = remember { FilesPanelState() }
         val dynamicTabs = remember { mutableStateListOf<PortalTab>() }
         var activeTabRequest by remember { mutableStateOf<PortalTab?>(null) }
+        var currentAppId by remember { mutableStateOf(appId) }
+        var persistedLayout by remember(currentAppId) { mutableStateOf(DockLayoutPersistence.load(currentAppId)) }
 
         fun openResponseTab(call: PortalNetworkCall) {
             val tab = NetworkResponseTab(call)
@@ -92,6 +93,9 @@ internal fun PortalApp() {
                 health = nextHealth
                 connectingManifest = nextManifest
                 savedConnections = PortalConnectionStore.upsert(nextManifest, targetConnection)
+                currentAppId = nextManifest.appId
+                persistedLayout = DockLayoutPersistence.load(nextManifest.appId)
+                navigateToApp(nextManifest.appId)
                 delay(520L)
                 manifest = nextManifest
             }.onFailure { throwable ->
@@ -174,7 +178,7 @@ internal fun PortalApp() {
                     ) {
                         key(layoutRevision) {
                             val dockTabs = listOf(NetworkTab, LogsTab, ScreenMirrorTab, FilesTab) + dynamicTabs
-                            val initialDockLayout = remember(layoutRevision, dockTabs, activeTabRequest, persistedLayout) {
+                            val initialDockLayout = remember(layoutRevision, dockTabs, activeTabRequest, persistedLayout, currentAppId) {
                                 DockLayoutPersistence.buildInitialLayout(
                                     restored = persistedLayout,
                                     tabs = dockTabs,
@@ -185,7 +189,7 @@ internal fun PortalApp() {
                                 initialLayout = initialDockLayout,
                                 onLayoutChanged = { layout ->
                                     persistedLayout = layout
-                                    DockLayoutPersistence.save(layout)
+                                    DockLayoutPersistence.save(currentAppId, layout)
                                 },
                             )
 
@@ -207,7 +211,7 @@ internal fun PortalApp() {
                                             connection = connection,
                                             client = client,
                                             enabled = manifest?.plugins?.any { it.id == NetworkPluginId } == true,
-                                            sourcePackageName = manifest?.sourcePackageName,
+                                            appId = manifest?.appId,
                                             onOpenResponseTab = ::openResponseTab,
                                         )
                                     }
@@ -257,7 +261,7 @@ internal fun PortalApp() {
                             targetOffsetY = { -it / 28 },
                         ),
                     ) {
-                        val persistedAppIconPngBase64 = launchParams.sourcePackageName
+                        val persistedAppIconPngBase64 = appId
                             ?.let { savedConnections.matchingPackage(it)?.appIconPngBase64 }
                         WelcomeConnectionPanel(
                             connection = connection,

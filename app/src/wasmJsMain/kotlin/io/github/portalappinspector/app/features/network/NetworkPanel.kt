@@ -87,7 +87,7 @@ internal fun NetworkPanel(
     connection: PortalConnection,
     client: PortalSourceClient,
     enabled: Boolean,
-    sourcePackageName: String?,
+    appId: String?,
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
 ) {
     var loading by remember { mutableStateOf(false) }
@@ -107,7 +107,7 @@ internal fun NetworkPanel(
     val use12HourClock = remember { jsUses12HourClock() }
     var networkDisplayNowEpochMillis by remember { mutableStateOf(nowEpochMillis()) }
     val mockScope = rememberCoroutineScope()
-    val mockPackageKey = sourcePackageName ?: connection.baseUrl
+    val mockPackageKey = appId ?: connection.baseUrl
     var mocks by remember(mockPackageKey) { mutableStateOf(PortalNetworkMockStore.load(mockPackageKey)) }
     val filteredCalls = calls.asReversed().filter { call -> filters.matchesNetworkCall(call) }
     val networkGapThresholdMillis = if (filters.any { it.mode != NetworkFilterMode.Highlight }) {

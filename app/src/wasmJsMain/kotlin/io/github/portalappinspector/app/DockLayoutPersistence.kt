@@ -21,17 +21,17 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
 internal object DockLayoutPersistence {
-    private const val StorageKey = "portal.app.inspector.dock-layout"
+    private const val StorageKeyPrefix = "portal.app.inspector.dock-layout."
 
-    fun load(): DockNode<PortalTab>? =
+    fun load(appId: String?): DockNode<PortalTab>? =
         runCatching {
-            val raw = kotlinx.browser.window.localStorage.getItem(StorageKey) ?: return null
+            val raw = kotlinx.browser.window.localStorage.getItem(storageKey(appId)) ?: return null
             StorageJson.decodeFromString<PortalDockNodeSnapshot?>(raw)?.toDockNode()
         }.getOrNull()
 
-    fun save(layout: DockNode<PortalTab>?) {
+    fun save(appId: String?, layout: DockNode<PortalTab>?) {
         runCatching {
-            kotlinx.browser.window.localStorage.setItem(StorageKey, StorageJson.encodeToString(layout.toSnapshot()))
+            kotlinx.browser.window.localStorage.setItem(storageKey(appId), StorageJson.encodeToString(layout.toSnapshot()))
         }
     }
 
@@ -308,4 +308,7 @@ internal object DockLayoutPersistence {
                 isMocked = isMocked,
             )
     }
+
+    private fun storageKey(appId: String?): String =
+        StorageKeyPrefix + (appId?.ifBlank { null } ?: "default")
 }

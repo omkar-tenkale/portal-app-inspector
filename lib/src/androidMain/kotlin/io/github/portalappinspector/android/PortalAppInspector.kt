@@ -46,7 +46,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import top.canyie.pine.Pine
 import top.canyie.pine.PineConfig
@@ -109,8 +108,7 @@ object PortalAppInspector {
             val host = findLanAddress() ?: "127.0.0.1"
             val nextState = PortalRuntimeState(
                 context = appContext,
-                sourceName = appContext.packageName,
-                sourcePackageName = appContext.packageName,
+                appId = appContext.packageName,
                 appName = appContext.portalAppName(),
                 appIconPngBase64 = appContext.portalAppIconPngBase64(),
                 host = host,
@@ -230,8 +228,7 @@ object PortalAppInspector {
                     session.method == Method.GET && session.uri == "/portal/health" -> jsonResponse(
                         PortalHealth(
                             ok = true,
-                            sourceName = runtime.sourceName,
-                            sourcePackageName = runtime.sourcePackageName,
+                            appId = runtime.appId,
                             appName = runtime.appName,
                             protocolVersion = PortalProtocol.Version,
                         )
@@ -239,9 +236,9 @@ object PortalAppInspector {
                     session.method == Method.GET && session.uri == "/portal/manifest" -> jsonResponse(
                         PortalManifest(
                             protocolVersion = PortalProtocol.Version,
-                            sourceName = runtime.sourceName,
-                            sourcePackageName = runtime.sourcePackageName,
+                            appId = runtime.appId,
                             appName = runtime.appName,
+                            platform = "android",
                             appIconPngBase64 = runtime.appIconPngBase64,
                             plugins = runtime.plugins.values
                                 .sortedBy { it.id }
@@ -573,8 +570,7 @@ object PortalAppInspector {
 
     internal data class PortalRuntimeState(
         val context: Context,
-        val sourceName: String,
-        val sourcePackageName: String,
+        val appId: String,
         val appName: String,
         val appIconPngBase64: String?,
         val host: String,
@@ -582,9 +578,9 @@ object PortalAppInspector {
         val plugins: Map<String, PortalPlugin>,
     ) {
         val portalUrl: String =
-            "$PortalUrlBase?host=$host&port=$port&mobileView=true&sourcePackageName=${sourcePackageName.portalUrlEncoded()}"
+            "$PortalUrlBase?host=$host&port=$port&mobileView=true&isEmulator=false&appId=${appId.portalUrlEncoded()}&platform=android"
         val localPortalUrl: String =
-            "$PortalUrlBase?host=localhost&port=$port&mobileView=true&sourcePackageName=${sourcePackageName.portalUrlEncoded()}"
+            "$PortalUrlBase?host=localhost&port=$port&mobileView=true&isEmulator=false&appId=${appId.portalUrlEncoded()}&platform=android"
     }
 
     private data class PortalPluginStreamRoute(

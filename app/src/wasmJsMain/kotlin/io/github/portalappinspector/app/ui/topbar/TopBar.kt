@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -107,7 +106,7 @@ internal fun TopBar(
         if (appSessionExpanded) {
             AppSessionDropdown(
                 savedConnections = savedConnections,
-                currentPackageName = manifest?.sourcePackageName,
+                currentPackageName = manifest?.appId,
                 onSelectConnection = {
                     appSessionExpanded = false
                     onSelectConnection(it)
@@ -199,7 +198,7 @@ internal fun AppSessionButton(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.width(if (manifest == null) 160.dp else 180.dp),
             )
-            manifest?.sourcePackageName?.let {
+            manifest?.appId?.let {
                 Text(
                     text = it,
                     color = PortalColors.muted,
@@ -252,7 +251,7 @@ internal fun AppSessionDropdown(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        if (saved.packageName == currentPackageName) PortalColors.background else PortalColors.card,
+                        if (saved.appId == currentPackageName) PortalColors.background else PortalColors.card,
                         RoundedCornerShape(5.dp),
                     )
                     .clickable { onSelectConnection(saved) }
@@ -275,14 +274,14 @@ internal fun AppSessionDropdown(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${saved.connection.host}:${saved.connection.port} - ${saved.packageName}",
+                        text = "${saved.connection.host}:${saved.connection.port} - ${saved.appId}",
                         color = PortalColors.muted,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (saved.packageName == currentPackageName) {
+                if (saved.appId == currentPackageName) {
                     Text("Active", color = PortalColors.success, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
