@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.zIndex
 import io.github.docklayout.DockLayout
-import io.github.docklayout.DockPanel
 import io.github.docklayout.rememberDockState
 import io.github.docklayout.tabRenderers
 import io.github.portalappinspector.PortalHealth
@@ -65,6 +64,7 @@ internal fun PortalApp() {
         var showSetupRequired by remember { mutableStateOf(false) }
         var layoutRevision by remember { mutableStateOf(0) }
         var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
+        var persistedLayout by remember { mutableStateOf(DockLayoutPersistence.load()) }
         val filesPanelState = remember { FilesPanelState() }
         val dynamicTabs = remember { mutableStateListOf<PortalTab>() }
         var activeTabRequest by remember { mutableStateOf<PortalTab?>(null) }
@@ -174,14 +174,19 @@ internal fun PortalApp() {
                     ) {
                         key(layoutRevision) {
                             val dockTabs = listOf(NetworkTab, LogsTab, ScreenMirrorTab, FilesTab) + dynamicTabs
-                            val layoutState = rememberDockState<PortalTab>(
-                                DockPanel(
+                            val initialDockLayout = remember(layoutRevision, dockTabs, activeTabRequest, persistedLayout) {
+                                DockLayoutPersistence.buildInitialLayout(
+                                    restored = persistedLayout,
                                     tabs = dockTabs,
-                                    activeIndex = activeTabRequest
-                                        ?.let { dockTabs.indexOf(it) }
-                                        ?.takeIf { it >= 0 }
-                                        ?: 0,
+                                    activeTab = activeTabRequest,
                                 )
+                            }
+                            val layoutState = rememberDockState<PortalTab>(
+                                initialLayout = initialDockLayout,
+                                onLayoutChanged = { layout ->
+                                    persistedLayout = layout
+                                    DockLayoutPersistence.save(layout)
+                                },
                             )
 
                             DockLayout(
