@@ -399,23 +399,46 @@ internal fun List<PortalLogEntry>.toLogRows(gapThresholdMillis: Long): List<Port
     return rows
 }
 
-internal fun List<PortalNetworkCall>.toNetworkRows(gapThresholdMillis: Long): List<PortalNetworkRow> {
+internal fun List<PortalNetworkCall>.toNetworkRows(nowEpochMillis: Long): List<PortalNetworkRow> {
     if (isEmpty()) return emptyList()
+
+    val t1 = nowEpochMillis - 60_000L
+    val t2 = nowEpochMillis - 86_400_000L
+    val t3 = nowEpochMillis - 172_800_000L
+
+    val newestTs = first().timestampEpochMillis
+    val oldestTs = last().timestampEpochMillis
+
+    val allowOneMinGap = newestTs >= t1 && oldestTs < t1
+    val allowYesterdayGap = newestTs >= t2 && oldestTs < t2
+    val allowLongTimeAgoGap = newestTs >= t3 && oldestTs < t3
+
     val rows = mutableListOf<PortalNetworkRow>()
-    forEachIndexed { index, call ->
-        if (index > 0) {
-            val previous = this[index - 1]
-            val gap = previous.timestampEpochMillis - call.timestampEpochMillis
-            if (gap >= gapThresholdMillis) {
-                rows += PortalNetworkRow.Gap(
-                    beforeId = previous.id,
-                    afterId = call.id,
-                    durationMillis = gap,
-                )
-            }
+    var addedOneMinGap = false
+    var addedYesterdayGap = false
+    var addedLongTimeAgoGap = false
+
+    forEach { call ->
+        val ts = call.timestampEpochMillis
+
+        if (allowOneMinGap && !addedOneMinGap && ts < t1) {
+            rows += PortalNetworkRow.Gap(NetworkGapType.OneMinuteAgo)
+            addedOneMinGap = true
         }
+
+        if (allowYesterdayGap && !addedYesterdayGap && ts < t2) {
+            rows += PortalNetworkRow.Gap(NetworkGapType.Yesterday)
+            addedYesterdayGap = true
+        }
+
+        if (allowLongTimeAgoGap && !addedLongTimeAgoGap && ts < t3) {
+            rows += PortalNetworkRow.Gap(NetworkGapType.ALongTimeAgo)
+            addedLongTimeAgoGap = true
+        }
+
         rows += PortalNetworkRow.Call(call)
     }
+
     return rows
 }
 

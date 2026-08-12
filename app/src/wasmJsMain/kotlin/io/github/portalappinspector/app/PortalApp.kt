@@ -213,6 +213,7 @@ internal fun PortalApp() {
                                             enabled = manifest?.plugins?.any { it.id == NetworkPluginId } == true,
                                             appId = manifest?.appId,
                                             onOpenResponseTab = ::openResponseTab,
+                                            mobileView = mobileView,
                                         )
                                     }
                                     renderer<LogsTab> { _, _ ->

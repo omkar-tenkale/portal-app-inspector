@@ -4,8 +4,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import io.github.portalappinspector.app.data.NetworkGapType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -542,6 +544,57 @@ internal fun TimelineGapBars(seconds: Long) {
                 .width(6.dp)
                 .height(segmentHeight)
                 .background(PortalColors.border.copy(alpha = 0.9f), RoundedCornerShape(4.dp)),
+        )
+    }
+}
+
+@Composable
+internal fun NetworkGapRow(
+    type: NetworkGapType,
+    nowEpochMillis: Long,
+    timezoneOffsetMinutes: Long,
+    use12HourClock: Boolean,
+) {
+    val labelText = when (type) {
+        NetworkGapType.OneMinuteAgo -> formatTimeHHMM(
+            epochMillis = nowEpochMillis - 60_000L,
+            timezoneOffsetMinutes = timezoneOffsetMinutes,
+            use12HourClock = use12HourClock,
+        )
+        NetworkGapType.Yesterday -> "Yesterday"
+        NetworkGapType.ALongTimeAgo -> "A long time ago"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp, horizontal = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.width(92.dp))
+        Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .width(34.dp)
+                .height(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(PortalColors.border.copy(alpha = 0.55f)),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = labelText,
+            color = PortalColors.muted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            fontFamily = if (type == NetworkGapType.OneMinuteAgo) FontFamily.Monospace else FontFamily.SansSerif,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
         )
     }
 }

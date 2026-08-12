@@ -87,6 +87,12 @@ internal data class NetworkHighlightMatch(
     val snippet: String,
 )
 
+internal enum class NetworkGapType {
+    OneMinuteAgo,
+    Yesterday,
+    ALongTimeAgo,
+}
+
 internal sealed interface PortalNetworkRow {
     val key: String
 
@@ -97,11 +103,9 @@ internal sealed interface PortalNetworkRow {
     }
 
     data class Gap(
-        val beforeId: Long,
-        val afterId: Long,
-        val durationMillis: Long,
+        val type: NetworkGapType,
     ) : PortalNetworkRow {
-        override val key: String = "network-gap-$beforeId-$afterId"
+        override val key: String = "network-gap-${type.name}"
     }
 }
 

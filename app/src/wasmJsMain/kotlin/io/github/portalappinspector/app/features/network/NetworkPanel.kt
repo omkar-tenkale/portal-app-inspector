@@ -89,6 +89,7 @@ internal fun NetworkPanel(
     enabled: Boolean,
     appId: String?,
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
+    mobileView: Boolean = false,
 ) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -110,13 +111,8 @@ internal fun NetworkPanel(
     val mockPackageKey = appId ?: connection.baseUrl
     var mocks by remember(mockPackageKey) { mutableStateOf(PortalNetworkMockStore.load(mockPackageKey)) }
     val filteredCalls = calls.asReversed().filter { call -> filters.matchesNetworkCall(call) }
-    val networkGapThresholdMillis = if (filters.any { it.mode != NetworkFilterMode.Highlight }) {
-        FilteredNetworkGapThresholdMillis
-    } else {
-        NetworkGapThresholdMillis
-    }
-    val networkRows = remember(filteredCalls, networkGapThresholdMillis) {
-        filteredCalls.toNetworkRows(networkGapThresholdMillis)
+    val networkRows = remember(filteredCalls, networkDisplayNowEpochMillis) {
+        filteredCalls.toNetworkRows(networkDisplayNowEpochMillis)
     }
 
     suspend fun syncMocks(nextMocks: List<PortalNetworkMock> = mocks) {
@@ -200,60 +196,123 @@ internal fun NetworkPanel(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, top = 6.dp, end = 8.dp),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                NetworkFilterBar(
-                    filters = filters,
-                    filterMode = filterMode,
-                    filterType = filterType,
-                    filterValue = filterValue,
-                    onFilterModeChange = { filterMode = it },
-                    onFilterTypeChange = {
-                        filterType = it
-                        filterValue = ""
-                    },
-                    onFilterValueChange = { filterValue = it },
-                    onAddFilter = { selectedMode, selectedType ->
-                        val nextFilter = NetworkFilterRule(
-                            mode = selectedMode,
-                            matcher = PortalNetworkMockMatcher(
-                                type = selectedType,
-                                value = filterValue.trim(),
-                            ),
+            if (mobileView) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 6.dp, end = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        NetworkDetailActionButton(
+                            icon = PortalTabIcons.Mock,
+                            text = "Mocks ${mocks.count { it.enabled }}",
+                            onClick = { mocksSheetOpen = true },
+                            enabled = enabled,
+                            modifier = Modifier.height(28.dp),
                         )
-                        if (nextFilter.matcher.value.isNotBlank()) {
-                            filters = filters + nextFilter
+                        Spacer(Modifier.width(8.dp))
+                        NetworkDetailActionButton(
+                            icon = PortalTabIcons.Delete,
+                            text = "Clear",
+                            onClick = {
+                                lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
+                                calls.clear()
+                            },
+                            enabled = calls.isNotEmpty(),
+                            modifier = Modifier.height(28.dp),
+                        )
+                    }
+                    NetworkFilterBar(
+                        filters = filters,
+                        filterMode = filterMode,
+                        filterType = filterType,
+                        filterValue = filterValue,
+                        onFilterModeChange = { filterMode = it },
+                        onFilterTypeChange = {
+                            filterType = it
                             filterValue = ""
-                        }
-                    },
-                    onDeleteFilter = { deleteIndex ->
-                        filters = filters.filterIndexed { index, _ -> index != deleteIndex }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                NetworkPanelToolbarDivider()
-                NetworkDetailActionButton(
-                    icon = PortalTabIcons.Mock,
-                    text = "Mocks ${mocks.count { it.enabled }}",
-                    onClick = { mocksSheetOpen = true },
-                    enabled = enabled,
-                    modifier = Modifier.height(28.dp),
-                )
-                NetworkDetailActionButton(
-                    icon = PortalTabIcons.Delete,
-                    text = "Clear",
-                    onClick = {
-                        lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
-                        calls.clear()
-                    },
-                    enabled = calls.isNotEmpty(),
-                    modifier = Modifier.height(28.dp),
-                )
+                        },
+                        onFilterValueChange = { filterValue = it },
+                        onAddFilter = { selectedMode, selectedType ->
+                            val nextFilter = NetworkFilterRule(
+                                mode = selectedMode,
+                                matcher = PortalNetworkMockMatcher(
+                                    type = selectedType,
+                                    value = filterValue.trim(),
+                                ),
+                            )
+                            if (nextFilter.matcher.value.isNotBlank()) {
+                                filters = filters + nextFilter
+                                filterValue = ""
+                            }
+                        },
+                        onDeleteFilter = { deleteIndex ->
+                            filters = filters.filterIndexed { index, _ -> index != deleteIndex }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 6.dp, end = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    NetworkFilterBar(
+                        filters = filters,
+                        filterMode = filterMode,
+                        filterType = filterType,
+                        filterValue = filterValue,
+                        onFilterModeChange = { filterMode = it },
+                        onFilterTypeChange = {
+                            filterType = it
+                            filterValue = ""
+                        },
+                        onFilterValueChange = { filterValue = it },
+                        onAddFilter = { selectedMode, selectedType ->
+                            val nextFilter = NetworkFilterRule(
+                                mode = selectedMode,
+                                matcher = PortalNetworkMockMatcher(
+                                    type = selectedType,
+                                    value = filterValue.trim(),
+                                ),
+                            )
+                            if (nextFilter.matcher.value.isNotBlank()) {
+                                filters = filters + nextFilter
+                                filterValue = ""
+                            }
+                        },
+                        onDeleteFilter = { deleteIndex ->
+                            filters = filters.filterIndexed { index, _ -> index != deleteIndex }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NetworkPanelToolbarDivider()
+                    NetworkDetailActionButton(
+                        icon = PortalTabIcons.Mock,
+                        text = "Mocks ${mocks.count { it.enabled }}",
+                        onClick = { mocksSheetOpen = true },
+                        enabled = enabled,
+                        modifier = Modifier.height(28.dp),
+                    )
+                    NetworkDetailActionButton(
+                        icon = PortalTabIcons.Delete,
+                        text = "Clear",
+                        onClick = {
+                            lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
+                            calls.clear()
+                        },
+                        enabled = calls.isNotEmpty(),
+                        modifier = Modifier.height(28.dp),
+                    )
+                }
             }
             if (!enabled) {
                 StatusCard("Network plugin unavailable", "Install the portal-network plugin in the source app.", PortalColors.warning)
@@ -275,11 +334,6 @@ internal fun NetworkPanel(
                 modifier = Modifier.fillMaxSize(),
                 state = networkListState,
             ) {
-                filteredCalls.firstOrNull()?.let { latestCall ->
-                    item(key = "network-live-gap") {
-                        LogGapRow(networkDisplayNowEpochMillis - latestCall.timestampEpochMillis)
-                    }
-                }
                 items(networkRows, key = { it.key }) { row ->
                     when (row) {
                         is PortalNetworkRow.Call -> NetworkCallRow(
@@ -290,7 +344,12 @@ internal fun NetworkPanel(
                             highlight = filters.firstHighlightFor(row.call),
                             onViewBody = { bodySheetCall = row.call },
                         )
-                        is PortalNetworkRow.Gap -> LogGapRow(row.durationMillis)
+                        is PortalNetworkRow.Gap -> NetworkGapRow(
+                            type = row.type,
+                            nowEpochMillis = networkDisplayNowEpochMillis,
+                            timezoneOffsetMinutes = timezoneOffsetMinutes,
+                            use12HourClock = use12HourClock,
+                        )
                     }
                 }
             }
@@ -401,16 +460,16 @@ internal fun NetworkFilterAddRow(
     }
     var activeMenu by remember { mutableStateOf(NetworkFilterMenu.Mode) }
     var menuVisible by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.widthIn(max = 460.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .height(30.dp)
-                .widthIn(max = 390.dp)
+                .fillMaxWidth()
                 .background(PortalColors.button, RoundedCornerShape(14.dp))
                 .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
-                .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
         ) {
             NetworkFilterModeSelector(
                 selected = mode,
@@ -428,7 +487,7 @@ internal fun NetworkFilterAddRow(
                 value = value,
                 onValueChange = onValueChange,
                 onSubmit = { if (value.isNotBlank()) onAdd(mode, selectedType) },
-                modifier = Modifier.width(110.dp),
+                modifier = Modifier.weight(1f),
             )
             Text("in", color = PortalColors.muted, fontSize = 12.sp)
             ConditionTypeSelector(
@@ -470,7 +529,7 @@ internal fun NetworkFilterAddRow(
                         menuVisible = false
                         onModeChange(it)
                     },
-                    modifier = Modifier.widthIn(max = 390.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 NetworkFilterMenu.Type -> ConditionTypeMenu(
                     options = NetworkFilterTypes,
@@ -479,7 +538,7 @@ internal fun NetworkFilterAddRow(
                         menuVisible = false
                         onTypeChange(it)
                     },
-                    modifier = Modifier.widthIn(max = 390.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -907,7 +966,7 @@ private fun NetworkPanelToolbarDivider() {
 }
 
 @Composable
-private fun NetworkDetailActionButton(
+internal fun NetworkDetailActionButton(
     icon: ImageVector,
     text: String,
     onClick: () -> Unit,
@@ -959,14 +1018,16 @@ private fun NetworkDetailActionButton(
 }
 
 @Composable
-private fun NetworkDetailIconButton(
+internal fun NetworkDetailIconButton(
     icon: ImageVector,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(28.dp)
             .clip(RoundedCornerShape(5.dp))
             .background(if (hovered) PortalColors.button.copy(alpha = 0.72f) else Color.Transparent)
@@ -982,7 +1043,7 @@ private fun NetworkDetailIconButton(
             painter = rememberVectorPainter(icon),
             contentDescription = null,
             modifier = Modifier.size(15.dp),
-            colorFilter = ColorFilter.tint(if (hovered) PortalColors.text else PortalColors.muted),
+            colorFilter = ColorFilter.tint(tint ?: if (hovered) PortalColors.text else PortalColors.muted),
         )
     }
 }
@@ -1418,34 +1479,89 @@ internal fun NetworkMocksSheet(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {},
-                )
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                ),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Mocks", color = PortalColors.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${mocks.count { it.enabled }} enabled / ${mocks.size} total", color = PortalColors.muted, fontSize = 12.sp)
-                }
-                PortalButton(text = "Add", onClick = onAdd, kind = PortalButtonKind.Primary)
-                Spacer(Modifier.width(8.dp))
-                PortalButton(text = "Close", onClick = onDismiss)
-            }
-            if (mocks.isEmpty()) {
-                StatusCard("No mocks", "Create a mock from a captured response body.", PortalColors.muted)
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(mocks, key = { "mock-${it.id}" }) { mock ->
-                        MockListRow(
-                            mock = mock,
-                            onEdit = { onEdit(mock) },
-                            onToggle = { onToggle(mock, it) },
-                            onDelete = { onDelete(mock) },
-                        )
+            NetworkMocksTopBar(
+                enabledCount = mocks.count { it.enabled },
+                totalCount = mocks.size,
+                onAdd = onAdd,
+                onDismiss = onDismiss,
+            )
+            RowDivider()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (mocks.isEmpty()) {
+                    StatusCard("No mocks", "Create a mock from a captured response body.", PortalColors.muted)
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(mocks, key = { "mock-${it.id}" }) { mock ->
+                            MockListRow(
+                                mock = mock,
+                                onEdit = { onEdit(mock) },
+                                onToggle = { onToggle(mock, it) },
+                                onDelete = { onDelete(mock) },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NetworkMocksTopBar(
+    enabledCount: Int,
+    totalCount: Int,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Mocks",
+                color = PortalColors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "$enabledCount enabled / $totalCount total",
+                color = PortalColors.muted,
+                fontSize = 11.sp,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        NetworkDetailActionButton(
+            icon = PortalTabIcons.Plus,
+            text = "Add",
+            onClick = onAdd,
+            modifier = Modifier.height(28.dp),
+        )
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 7.dp)
+                .width(1.dp)
+                .height(18.dp)
+                .background(PortalColors.border.copy(alpha = 0.85f)),
+        )
+        NetworkDetailIconButton(
+            icon = PortalTabIcons.Close,
+            onClick = onDismiss,
+        )
     }
 }
 
@@ -1479,8 +1595,8 @@ internal fun MockListRow(
                 Text(mock.displayLabel(), color = PortalColors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(mock.response.label(), color = PortalColors.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            PortalVectorIconButton(icon = PortalTabIcons.Edit, onClick = onEdit)
-            PortalVectorIconButton(
+            NetworkDetailIconButton(icon = PortalTabIcons.Edit, onClick = onEdit)
+            NetworkDetailIconButton(
                 icon = PortalTabIcons.Delete,
                 onClick = {
                     if (deleteArmed) {
@@ -1489,7 +1605,7 @@ internal fun MockListRow(
                         deleteArmed = true
                     }
                 },
-                tint = if (deleteArmed) PortalColors.error else PortalColors.text,
+                tint = if (deleteArmed) PortalColors.error else null,
             )
         }
         RowDivider()
@@ -1508,7 +1624,9 @@ internal fun NetworkMockEditorSheet(
     }
     var delayEnabled by remember(initialMock.id) { mutableStateOf(initialMock.expectation.delayMs > 0L) }
     var delaySeconds by remember(initialMock.id) {
-        mutableStateOf((initialMock.expectation.delayMs.takeIf { it > 0L }?.div(1000L) ?: 2L).toString())
+        mutableStateOf(
+            (initialMock.expectation.delayMs.takeIf { it > 0L }?.div(1000L) ?: 2L).toString()
+        )
     }
     var conditionType by remember(initialMock.id) { mutableStateOf("urlContains") }
     var conditionValue by remember(initialMock.id) { mutableStateOf("") }
@@ -1611,152 +1729,171 @@ internal fun NetworkMockEditorSheet(
                 .fillMaxWidth()
                 .height(640.dp)
                 .background(PortalColors.card, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                .border(1.dp, PortalColors.border, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .border(
+                    1.dp,
+                    PortalColors.border,
+                    RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = {},
-                )
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                ),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            NetworkMockEditorTopBar(
+                enabled = enabled,
+                savedIndicatorVisible = savedIndicatorVisible,
+                onEnabledChange = { enabled = it },
+                onDismiss = onDismiss,
+            )
+            RowDivider()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(
-                        "Setup Mock",
-                        color = PortalColors.text.copy(alpha = 0.88f),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        "Set up fake responses to test your app in different conditions",
-                        color = PortalColors.muted,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (savedIndicatorVisible) {
-                        Text("Saved!", color = PortalColors.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    }
-                    PortalSwitch(checked = enabled, onCheckedChange = { enabled = it })
-                }
-            }
-            validationError?.let { StatusCard("Mock not saved", it, PortalColors.error) }
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                item {
-                    MockEditorSection(
-                        title = "Conditions",
-                    ) {
-                        ConditionFlow(
-                            matchers = matchers,
-                            onDelete = { deleteIndex ->
-                                matchers = matchers.filterIndexed { index, _ -> index != deleteIndex }
-                            },
+                Text(
+                    "Set up fake responses to test your app in different conditions",
+                    color = PortalColors.muted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                validationError?.let { StatusCard("Mock not saved", it, PortalColors.error) }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    item {
+                        MockEditorSection(
+                            title = "Conditions",
                         ) {
-                            if (addConditionVisible) {
-                                ConditionAddRow(
-                                    type = conditionType,
-                                    value = conditionValue,
-                                    onTypeChange = {
-                                        conditionType = it
-                                        conditionValue = ""
-                                    },
-                                    onValueChange = { conditionValue = it },
-                                    onCancel = {
-                                        conditionValue = ""
-                                        addConditionVisible = false
-                                    },
-                                    onAdd = { selectedType ->
-                                        val nextMatcher = PortalNetworkMockMatcher(
-                                            type = selectedType,
-                                            value = conditionValue,
-                                        )
-                                        if (nextMatcher.value.isNotBlank()) {
-                                            matchers = matchers + nextMatcher
+                            ConditionFlow(
+                                matchers = matchers,
+                                onDelete = { deleteIndex ->
+                                    matchers =
+                                        matchers.filterIndexed { index, _ -> index != deleteIndex }
+                                },
+                            ) {
+                                if (addConditionVisible) {
+                                    ConditionAddRow(
+                                        type = conditionType,
+                                        value = conditionValue,
+                                        onTypeChange = {
+                                            conditionType = it
+                                            conditionValue = ""
+                                        },
+                                        onValueChange = { conditionValue = it },
+                                        onCancel = {
                                             conditionValue = ""
                                             addConditionVisible = false
-                                        }
-                                    },
-                                )
-                            } else {
-                                AddConditionPill(onClick = { addConditionVisible = true })
+                                        },
+                                        onAdd = { selectedType ->
+                                            val nextMatcher = PortalNetworkMockMatcher(
+                                                type = selectedType,
+                                                value = conditionValue,
+                                            )
+                                            if (nextMatcher.value.isNotBlank()) {
+                                                matchers = matchers + nextMatcher
+                                                conditionValue = ""
+                                                addConditionVisible = false
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    AddConditionPill(onClick = { addConditionVisible = true })
+                                }
                             }
                         }
                     }
-                }
-                item {
-                    MockEditorSection(
-                        title = "Response",
-                        trailing = {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                DelayCycleText(
-                                    enabled = delayEnabled,
-                                    seconds = delaySeconds,
-                                    onEnabledChange = { delayEnabled = it },
-                                    onSecondsChange = { delaySeconds = it },
-                                )
-                                ResponseModeTabs(responseMode = responseMode, onChange = { responseMode = it })
-                            }
-                        },
-                    ) {
-                        if (responseMode == "body") {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    CompactTextField("Code", responseCode, { responseCode = it.filter(Char::isDigit).take(3) }, Modifier.width(96.dp))
-                                    CompactTextField("Content-Type", responseContentType, { responseContentType = it }, Modifier.weight(1f))
-                                }
-                                MockResponseEditorTabs(
-                                    selected = responseEditorTab,
-                                    onChange = { responseEditorTab = it },
-                                )
-                                if (responseEditorTab == "headers") {
-                                    PortalTextField(
-                                        value = responseHeadersText,
-                                        onValueChange = { responseHeadersText = it },
-                                        label = "Headers, one per line: Key: Value",
-                                        minLines = 8,
-                                        maxLines = 12,
-                                        modifier = Modifier.fillMaxWidth(),
+                    item {
+                        MockEditorSection(
+                            title = "Response",
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    DelayCycleText(
+                                        enabled = delayEnabled,
+                                        seconds = delaySeconds,
+                                        onEnabledChange = { delayEnabled = it },
+                                        onSecondsChange = { delaySeconds = it },
                                     )
-                                } else {
-                                    BodyEditor(
-                                        value = responseBody,
-                                        onValueChange = { responseBody = it },
-                                        mode = responseBodyMode,
-                                        onModeChange = { responseBodyMode = it },
-                                        onFormatValue = { responseBody = it },
-                                        label = null,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
+                                    ResponseModeTabs(
+                                        responseMode = responseMode,
+                                        onChange = { responseMode = it })
                                 }
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                PortalNetworkErrorTypes.forEach { type ->
+                            },
+                        ) {
+                            if (responseMode == "body") {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .clickable { errorType = type }
-                                            .padding(horizontal = 4.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        PortalCheckbox(checked = errorType == type, onCheckedChange = { if (it) errorType = type })
-                                        Text(
-                                            type,
-                                            color = if (errorType == type) PortalColors.text else PortalColors.muted,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (errorType == type) FontWeight.Medium else null,
+                                        CompactTextField(
+                                            "Code",
+                                            responseCode,
+                                            { responseCode = it.filter(Char::isDigit).take(3) },
+                                            Modifier.width(96.dp)
                                         )
+                                        CompactTextField(
+                                            "Content-Type",
+                                            responseContentType,
+                                            { responseContentType = it },
+                                            Modifier.weight(1f)
+                                        )
+                                    }
+                                    MockResponseEditorTabs(
+                                        selected = responseEditorTab,
+                                        onChange = { responseEditorTab = it },
+                                    )
+                                    if (responseEditorTab == "headers") {
+                                        PortalTextField(
+                                            value = responseHeadersText,
+                                            onValueChange = { responseHeadersText = it },
+                                            label = "Headers, one per line: Key: Value",
+                                            minLines = 8,
+                                            maxLines = 12,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    } else {
+                                        BodyEditor(
+                                            value = responseBody,
+                                            onValueChange = { responseBody = it },
+                                            mode = responseBodyMode,
+                                            onModeChange = { responseBodyMode = it },
+                                            onFormatValue = { responseBody = it },
+                                            label = null,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    }
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    PortalNetworkErrorTypes.forEach { type ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .clickable { errorType = type }
+                                                .padding(horizontal = 4.dp, vertical = 5.dp),
+                                        ) {
+                                            PortalCheckbox(
+                                                checked = errorType == type,
+                                                onCheckedChange = { if (it) errorType = type })
+                                            Text(
+                                                type,
+                                                color = if (errorType == type) PortalColors.text else PortalColors.muted,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (errorType == type) FontWeight.Medium else null,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1765,6 +1902,51 @@ internal fun NetworkMockEditorSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NetworkMockEditorTopBar(
+    enabled: Boolean,
+    savedIndicatorVisible: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Setup Mock",
+            color = PortalColors.text,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.weight(1f))
+        if (savedIndicatorVisible) {
+            Text(
+                text = "Saved!",
+                color = PortalColors.accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        PortalSwitch(checked = enabled, onCheckedChange = onEnabledChange)
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 7.dp)
+                .width(1.dp)
+                .height(18.dp)
+                .background(PortalColors.border.copy(alpha = 0.85f)),
+        )
+        NetworkDetailIconButton(
+            icon = PortalTabIcons.Close,
+            onClick = onDismiss,
+        )
     }
 }
 
@@ -2130,7 +2312,7 @@ internal fun ConditionAddRow(
                 .widthIn(max = 460.dp)
                 .background(PortalColors.button, RoundedCornerShape(14.dp))
                 .border(1.dp, PortalColors.inputBorder, RoundedCornerShape(14.dp))
-                .padding(start = 10.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
         ) {
             InlineConditionTextField(
                 value = value,

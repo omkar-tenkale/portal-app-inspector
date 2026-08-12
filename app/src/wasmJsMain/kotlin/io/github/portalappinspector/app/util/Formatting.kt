@@ -48,6 +48,23 @@ internal fun formatAbsoluteLogTime(
     return "${hours.twoDigits()}:${minutes.twoDigits()}:${seconds.twoDigits()}"
 }
 
+internal fun formatTimeHHMM(
+    epochMillis: Long,
+    timezoneOffsetMinutes: Long,
+    use12HourClock: Boolean,
+): String {
+    val localEpochMillis = epochMillis - (timezoneOffsetMinutes * 60_000L)
+    val secondsOfDay = ((localEpochMillis / 1_000L) % 86_400L + 86_400L) % 86_400L
+    val hours = secondsOfDay / 3_600L
+    val minutes = (secondsOfDay / 60L) % 60L
+    if (use12HourClock) {
+        val hour12 = (hours % 12L).takeIf { it != 0L } ?: 12L
+        val amPm = if (hours >= 12L) "PM" else "AM"
+        return "$hour12:${minutes.twoDigits()} $amPm"
+    }
+    return "${hours.twoDigits()}:${minutes.twoDigits()}"
+}
+
 internal fun formatLogGap(durationMillis: Long): String {
     val seconds = (durationMillis / 1_000L).coerceAtLeast(1L)
     val minutes = seconds / 60L
