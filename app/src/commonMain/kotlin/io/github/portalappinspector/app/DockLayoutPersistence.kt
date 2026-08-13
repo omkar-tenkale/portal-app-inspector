@@ -1,3 +1,4 @@
+// commonMain/kotlin/io/github/portalappinspector/app/DockLayoutPersistence.kt
 package io.github.portalappinspector.app
 
 import io.github.docklayout.DockColumn
@@ -15,6 +16,8 @@ import io.github.portalappinspector.app.ui.tabs.PortalTab
 import io.github.portalappinspector.app.ui.tabs.ScreenMirrorTab
 import io.github.portalappinspector.app.ui.tabs.SharedPrefsTab
 import io.github.portalappinspector.app.ui.tabs.UnsupportedPluginTab
+import io.github.portalappinspector.app.util.platformLoadFromStorage
+import io.github.portalappinspector.app.util.platformSaveToStorage
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -25,13 +28,13 @@ internal object DockLayoutPersistence {
 
     fun load(appId: String?): DockNode<PortalTab>? =
         runCatching {
-            val raw = kotlinx.browser.window.localStorage.getItem(storageKey(appId)) ?: return null
+            val raw = platformLoadFromStorage(storageKey(appId)) ?: return null
             StorageJson.decodeFromString<PortalDockNodeSnapshot?>(raw)?.toDockNode()
         }.getOrNull()
 
     fun save(appId: String?, layout: DockNode<PortalTab>?) {
         runCatching {
-            kotlinx.browser.window.localStorage.setItem(storageKey(appId), StorageJson.encodeToString(layout.toSnapshot()))
+            platformSaveToStorage(storageKey(appId), StorageJson.encodeToString(layout.toSnapshot()))
         }
     }
 

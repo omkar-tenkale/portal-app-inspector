@@ -1,20 +1,11 @@
 package io.github.portalappinspector.app.util
 
-import androidx.compose.runtime.key
-import androidx.compose.ui.input.key.key
 import kotlinx.serialization.encodeToString
-import io.ktor.client.call.body
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asComposeImageBitmap
-import kotlinx.browser.document
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import org.w3c.dom.HTMLAnchorElement
-import org.w3c.dom.HTMLTextAreaElement
-import org.jetbrains.skia.Bitmap as SkiaBitmap
-import org.jetbrains.skia.Image as SkiaImage
 
 internal fun formatRelativeLogTime(
     epochMillis: Long,
@@ -107,16 +98,11 @@ internal fun formatJsonOrNull(value: String): String? =
         PrettyJson.encodeToString(JsonElement.serializer(), element)
     }.getOrNull()
 
-@OptIn(ExperimentalEncodingApi::class)
 internal fun String.toImageBitmapOrNull(): ImageBitmap? =
-    runCatching {
-        SkiaBitmap.makeFromImage(SkiaImage.makeFromEncoded(Base64.decode(this))).asComposeImageBitmap()
-    }.getOrNull()
+    platformDecodeBase64ToImageBitmap(this)
 
 internal fun ByteArray.toImageBitmapOrNull(): ImageBitmap? =
-    runCatching {
-        SkiaBitmap.makeFromImage(SkiaImage.makeFromEncoded(this)).asComposeImageBitmap()
-    }.getOrNull()
+    platformDecodeByteArrayToImageBitmap(this)
 
 @OptIn(ExperimentalEncodingApi::class)
 internal fun decodeBase64ToText(value: String): String =
@@ -141,36 +127,18 @@ internal fun formatNetworkSize(sizeBytes: Long?): String {
     }
 }
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-internal fun jsDateNow(): Double =
-    js("Date.now()")
+internal fun jsDateNow(): Double = platformNowEpochMillis()
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-internal fun jsTimezoneOffsetMinutes(): Double =
-    js("new Date().getTimezoneOffset()")
+internal fun jsTimezoneOffsetMinutes(): Double = platformTimezoneOffsetMinutes()
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-internal fun jsUses12HourClock(): Boolean =
-    js("(() => { const hourCycle = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hourCycle; return hourCycle === 'h11' || hourCycle === 'h12'; })()")
+internal fun jsUses12HourClock(): Boolean = platformUses12HourClock()
 
 internal fun copyTextToClipboard(text: String) {
-    val input = document.createElement("textarea") as HTMLTextAreaElement
-    input.value = text
-    input.style.position = "fixed"
-    input.style.opacity = "0"
-    document.body?.appendChild(input)
-    input.select()
-    document.execCommand("copy")
-    document.body?.removeChild(input)
+    platformCopyTextToClipboard(text)
 }
 
 internal fun downloadBase64File(base64: String, fileName: String) {
-    val link = document.createElement("a") as HTMLAnchorElement
-    link.href = "data:application/octet-stream;base64,$base64"
-    link.download = fileName.ifBlank { "download" }
-    document.body?.appendChild(link)
-    link.click()
-    document.body?.removeChild(link)
+    platformDownloadBase64File(base64, fileName)
 }
 
 internal fun nowEpochMillis(): Long =

@@ -1,7 +1,6 @@
 package io.github.portalappinspector.app.data
 
 import io.github.portalappinspector.PortalManifest
-import kotlinx.browser.window
 import kotlinx.serialization.Serializable
 import io.github.portalappinspector.app.util.*
 
@@ -29,7 +28,7 @@ internal data class PortalLaunchParams(
 ) {
     companion object {
         fun fromUrl(): PortalLaunchParams {
-            val params = window.location.search
+            val params = platformGetUrlQueryString()
                 .removePrefix("?")
                 .split("&")
                 .filter { it.contains("=") }
@@ -75,11 +74,7 @@ internal data class PortalLaunchParams(
 }
 
 internal fun String.queryDecoded(): String =
-    runCatching { decodeURIComponent(replace("+", "%20")) }.getOrDefault(this)
-
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-internal fun decodeURIComponent(value: String): String =
-    js("decodeURIComponent(value)")
+    runCatching { platformDecodeURIComponent(replace("+", "%20")) }.getOrDefault(this)
 
 @Serializable
 internal data class SavedPortalConnection(
@@ -99,7 +94,7 @@ internal object PortalConnectionStore {
 
     fun load(): List<SavedPortalConnection> =
         runCatching {
-            val raw = window.localStorage.getItem(StorageKey) ?: return emptyList()
+            val raw = platformLoadFromStorage(StorageKey) ?: return emptyList()
             StorageJson.decodeFromString<List<SavedPortalConnection>>(raw)
                 .sortedByDescending { it.updatedAt }
         }.getOrDefault(emptyList())
@@ -122,7 +117,7 @@ internal object PortalConnectionStore {
         val updated = (load().filterNot { it.appId == next.appId } + next)
             .sortedByDescending { it.updatedAt }
         runCatching {
-            window.localStorage.setItem(StorageKey, StorageJson.encodeToString(updated))
+            platformSaveToStorage(StorageKey, StorageJson.encodeToString(updated))
         }
         return updated
     }
@@ -133,12 +128,9 @@ internal fun List<SavedPortalConnection>.matchingPackage(appId: String): SavedPo
         it.appId == appId
     }
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
 internal fun navigateToApp(appId: String) {
-    val nextPath = "/?appId=${queryEncoded(appId)}"
-    window.history.replaceState(null, "", nextPath)
+    platformNavigateToApp(appId)
 }
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
 internal fun queryEncoded(value: String): String =
-    js("encodeURIComponent(value)")
+    platformEncodeURIComponent(value)

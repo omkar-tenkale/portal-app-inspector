@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import io.github.portalappinspector.app.ui.Text
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 fun Preview() {
@@ -18,6 +19,7 @@ fun Preview() {
     }
 }
 
+@Preview
 @Composable
 fun PreviewContent() {
     Text(text = "Click Me!")

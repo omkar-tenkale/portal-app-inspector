@@ -5,9 +5,18 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.androidMultiplatformLibrary)
 }
-
 kotlin {
+    android {
+        namespace = "com.portal.appinspector"
+        compileSdk = 36
+        minSdk = 24
+
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         browser()
@@ -19,6 +28,7 @@ kotlin {
             implementation(project(":lib"))
             implementation(libs.compose.foundation)
             implementation(libs.compose.runtime)
+            implementation("org.jetbrains.compose.ui:ui-tooling-preview:1.11.1")
             implementation(libs.compose.ui)
             implementation(libs.docklayout)
             implementation(libs.json.tree)
@@ -34,4 +44,8 @@ kotlin {
             implementation(libs.wrappers.browser)
         }
     }
+}
+
+dependencies {
+    androidRuntimeClasspath("org.jetbrains.compose.ui:ui-tooling:1.11.1")
 }

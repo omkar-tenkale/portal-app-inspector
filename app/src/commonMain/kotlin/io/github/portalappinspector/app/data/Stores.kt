@@ -1,10 +1,8 @@
 package io.github.portalappinspector.app.data
 
-import kotlinx.browser.window
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import androidx.compose.foundation.lazy.items
 import io.github.portalappinspector.app.util.*
 
 internal object PortalNetworkMockStore {
@@ -17,14 +15,14 @@ internal object PortalNetworkMockStore {
         val cleaned = mocks.distinctBy { it.id }.sortedByDescending { it.updatedAtEpochMillis }
         val updated = loadAll() + (packageName to cleaned)
         runCatching {
-            window.localStorage.setItem(StorageKey, StorageJson.encodeToString(updated))
+            platformSaveToStorage(StorageKey, StorageJson.encodeToString(updated))
         }
         return cleaned
     }
 
     internal fun loadAll(): Map<String, List<PortalNetworkMock>> =
         runCatching {
-            val raw = window.localStorage.getItem(StorageKey) ?: return emptyMap()
+            val raw = platformLoadFromStorage(StorageKey) ?: return emptyMap()
             StorageJson.decodeFromString<Map<String, List<PortalNetworkMock>>>(raw)
         }.getOrDefault(emptyMap())
 }
@@ -34,7 +32,7 @@ internal object PortalFilePinStore {
 
     fun load(): List<PortalPinnedFileItem> =
         runCatching {
-            val raw = window.localStorage.getItem(StorageKey) ?: return emptyList()
+            val raw = platformLoadFromStorage(StorageKey) ?: return emptyList()
             StorageJson.decodeFromString<List<PortalPinnedFileItem>>(raw)
         }.getOrDefault(emptyList())
 
@@ -63,7 +61,7 @@ internal object PortalFilePinStore {
     internal fun save(items: List<PortalPinnedFileItem>): List<PortalPinnedFileItem> {
         val cleaned = items.distinctBy { it.path }.sortedByDescending { it.pinnedAtEpochMillis }
         runCatching {
-            window.localStorage.setItem(StorageKey, StorageJson.encodeToString(cleaned))
+            platformSaveToStorage(StorageKey, StorageJson.encodeToString(cleaned))
         }
         return cleaned
     }
