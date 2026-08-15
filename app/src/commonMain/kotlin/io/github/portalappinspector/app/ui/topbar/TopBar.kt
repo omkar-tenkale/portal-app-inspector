@@ -55,6 +55,7 @@ import io.github.portalappinspector.app.ui.icons.*
 import io.github.portalappinspector.app.util.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 internal fun TopBar(
@@ -528,5 +529,84 @@ internal fun PortalMark(modifier: Modifier = Modifier) {
             drawPortalOval(316f, 256f, 76f, 110f, 30f, PortalColors.topBar, 52f)
             drawPortalOval(316f, 256f, 76f, 110f, 30f, PortalColors.logo, 26f)
         }
+    }
+}
+
+// ==========================================
+// PREVIEWS
+// ==========================================
+
+@Preview
+@Composable
+private fun TopBarPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .background(PortalColors.background)
+    ) {
+        TopBar(
+            manifest = null,
+            savedConnections = emptyList(),
+            onSelectConnection = {}
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun AppInfoPopupPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .background(PortalColors.background)
+    ) {
+        AppInfoPopup()
+    }
+}
+
+@Preview
+@Composable
+private fun AppSessionDropdownPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .background(PortalColors.background)
+    ) {
+        AppSessionDropdown(
+            savedConnections = emptyList(),
+            currentPackageName = null,
+            onSelectConnection = {}
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun PortalMarkPreview() {
+    Box(
+        modifier = Modifier
+            .size(100.dp)
+            .background(PortalColors.background)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        PortalMark(modifier = Modifier.fillMaxSize())
+    }
+}
+
+@Preview
+@Composable
+private fun AppIconPlaceholderPreview() {
+    Box(
+        modifier = Modifier
+            .size(100.dp)
+            .background(PortalColors.background)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        AppIconPlaceholder(modifier = Modifier.fillMaxSize())
     }
 }

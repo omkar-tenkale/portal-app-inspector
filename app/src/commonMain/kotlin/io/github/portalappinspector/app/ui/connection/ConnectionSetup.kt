@@ -52,6 +52,7 @@ import io.github.portalappinspector.app.ui.topbar.*
 import io.github.portalappinspector.app.util.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 internal fun WelcomeConnectionPanel(
@@ -479,5 +480,112 @@ internal fun QuietTextButton(
                 maxLines = 1,
             )
         }
+    }
+}
+
+// ==========================================
+// PREVIEWS
+// ==========================================
+
+@Preview
+@Composable
+private fun MobileConnectionStatePreview() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(modifier = Modifier.height(100.dp)) {
+            MobileConnectionState(connecting = true, error = null)
+        }
+        Box(modifier = Modifier.height(100.dp)) {
+            MobileConnectionState(connecting = false, error = "Connection refused by target")
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun SetupOptionCardPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(16.dp)
+    ) {
+        SetupOptionCard(
+            icon = PortalTabIcons.Wifi,
+            title = "Connect over Wi-Fi",
+            body = "Ensure your computer and Android device are on the same wifi network.",
+            expanded = false,
+            onToggleExpanded = {}
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun ConnectionIssuesTogglePreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(16.dp)
+    ) {
+        ConnectionIssuesToggle(expanded = false, onClick = {})
+    }
+}
+
+@Preview
+@Composable
+private fun CopyCommandRowPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(16.dp)
+    ) {
+        CopyCommandRow(command = "adb forward tcp:8080 tcp:8080")
+    }
+}
+
+@Preview
+@Composable
+private fun QuietTextButtonPreview() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        QuietTextButton(text = "Need help?", onClick = {})
+        QuietTextButton(text = "Copy", icon = PortalTabIcons.CopyPath, onClick = {})
+    }
+}
+
+@Preview
+@Composable
+private fun WelcomeConnectionPanelPreview() {
+    val mockConnection = remember {
+        PortalConnection(host = "192.168.1.10", port = "8080")
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PortalColors.background)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        WelcomeConnectionPanel(
+            connection = mockConnection,
+            appIconPngBase64 = null,
+            animateAppIconReveal = false,
+            showSetupRequired = true,
+            isEmulator = false
+        )
     }
 }

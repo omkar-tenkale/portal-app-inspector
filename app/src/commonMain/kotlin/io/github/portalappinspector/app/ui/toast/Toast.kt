@@ -21,10 +21,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
@@ -38,6 +40,7 @@ import androidx.compose.ui.draw.shadow
 import io.github.portalappinspector.app.ui.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.tooling.preview.Preview
 
 internal val LocalToastHost = staticCompositionLocalOf { ToastHostState() }
 
@@ -205,5 +208,69 @@ internal fun ToastIcon(
                 center = center,
             )
         }
+    }
+}
+
+// ==========================================
+// PREVIEWS
+// ==========================================
+
+@Preview
+@Composable
+private fun ToastIconPreview() {
+    Row(
+        modifier = Modifier
+            .background(PortalColors.background)
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        ToastIcon(kind = ToastKind.Success, modifier = Modifier.size(24.dp))
+        ToastIcon(kind = ToastKind.Info, modifier = Modifier.size(24.dp))
+        ToastIcon(kind = ToastKind.Warning, modifier = Modifier.size(24.dp))
+        ToastIcon(kind = ToastKind.Error, modifier = Modifier.size(24.dp))
+    }
+}
+
+@Preview
+@Composable
+private fun ToastCardPreview() {
+    Column(
+        modifier = Modifier
+            .background(PortalColors.background)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ToastCard(
+            toast = PortalToast(1, "Connection established successfully.", ToastKind.Success, 5000L),
+            onDismiss = {}
+        )
+        ToastCard(
+            toast = PortalToast(2, "Failed to connect to the target process.", ToastKind.Error, 5000L),
+            onDismiss = {}
+        )
+        ToastCard(
+            toast = PortalToast(3, "Command copied to clipboard.", ToastKind.Info, 5000L),
+            onDismiss = {}
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun ToastHostPreview() {
+    val state = remember {
+        ToastHostState().apply {
+            toasts.add(PortalToast(1, "First toast message appearing at the top", ToastKind.Info, 10000L).apply { visible = true })
+            toasts.add(PortalToast(2, "Second toast message", ToastKind.Success, 10000L).apply { visible = true })
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PortalColors.background)
+            .padding(bottom = 100.dp) // extra padding to show the layout naturally
+    ) {
+        ToastHost(state = state)
     }
 }
