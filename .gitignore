@@ -5,3 +5,4 @@ build/
 local.properties
 **/build/
 kotlin-js-store/
+**/.DS_Store
