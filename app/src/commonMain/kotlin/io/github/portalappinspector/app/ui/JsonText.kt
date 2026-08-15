@@ -1,5 +1,13 @@
 package io.github.portalappinspector.app.ui
 
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -531,3 +539,15 @@ private fun String.searchRanges(query: String): List<IntRange> {
 
 private fun String.lineIndexBefore(offset: Int): Int =
     take(offset.coerceIn(0, length)).count { it == '\n' }
+
+
+@Preview
+@Composable
+private fun JsonTextPreview() {
+    Box(modifier = Modifier.padding(16.dp).background(PortalColors.background)) {
+        JsonText(jsonString = """{
+  \"status\": \"success\",
+  \"code\": 200
+}""")
+    }
+}
