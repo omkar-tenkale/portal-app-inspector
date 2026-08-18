@@ -24,11 +24,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalFileItem
-import io.github.portalappinspector.app.data.PortalFilePinStore
+import io.github.portalappinspector.app.features.files.PortalFilePinStore
 import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.PortalViewedFile
-import io.github.portalappinspector.app.data.parseFileItem
+import io.github.portalappinspector.app.data.networkJson
 import io.github.portalappinspector.app.ui.EmptyRow
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.RowDivider
@@ -39,12 +37,16 @@ import io.github.portalappinspector.app.util.copyTextToClipboard
 import io.github.portalappinspector.app.util.decodeBase64ToText
 import io.github.portalappinspector.app.util.downloadBase64File
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+
+
 
 @Composable
 internal fun FilesPanel(
@@ -82,7 +84,9 @@ internal fun FilesPanel(
                 }
                 state.currentPath = path
                 state.fileItems.clear()
-                state.fileItems += payload["items"]?.jsonArray?.map(::parseFileItem).orEmpty()
+                state.fileItems += payload["items"]?.jsonArray?.map{
+                    networkJson.decodeFromJsonElement<PortalFileItem>(it)
+                }.orEmpty()
                 state.fileListVersion += 1
             }.onFailure { throwable ->
                 state.error = throwable.message ?: throwable::class.simpleName

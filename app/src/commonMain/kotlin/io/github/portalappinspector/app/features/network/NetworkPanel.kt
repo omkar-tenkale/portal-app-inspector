@@ -71,6 +71,8 @@ import io.github.portalappinspector.app.ui.icons.*
 import io.github.portalappinspector.app.util.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import io.viascom.nanoid.NanoId
+import kotlinx.serialization.json.decodeFromJsonElement
 
 @Composable
 internal fun NetworkPanel(
@@ -144,7 +146,9 @@ internal fun NetworkPanel(
             )
         }.onSuccess { payload ->
             error = null
-            val nextCalls = payload["items"]?.jsonArray?.map(::parseNetworkCall).orEmpty()
+            val nextCalls = payload["items"]?.jsonArray?.map({
+                networkJson.decodeFromJsonElement<PortalNetworkCall>(it)
+            }).orEmpty()
             val existingIds = calls.mapTo(mutableSetOf()) { it.id }
             calls += nextCalls.filter { existingIds.add(it.id) }
             lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
@@ -364,6 +368,21 @@ internal fun NetworkPanel(
                 onDismiss = { mocksSheetOpen = false },
                 onAdd = {
                     mocksSheetOpen = false
+                    fun createBlankMock(): PortalNetworkMock {
+                        val now = nowEpochMillis()
+                        return PortalNetworkMock(
+                            id = NanoId.generate(),
+                            enabled = true,
+                            createdAtEpochMillis = now,
+                            updatedAtEpochMillis = now,
+                            expectation = PortalNetworkMockExpectation(
+                                matchers = listOf(PortalNetworkMockMatcher(type = "methodContains", value = "GET")),
+                            ),
+                            response = PortalNetworkMockResponse(
+                                body = PortalNetworkBodyResponse(),
+                            ),
+                        )
+                    }
                     mockEditorInitial = createBlankMock()
                 },
                 onEdit = { mock ->

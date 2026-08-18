@@ -4,12 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.dp
 import io.github.docklayout.DockLayoutTab
-import io.github.portalappinspector.app.data.*
+import io.github.portalappinspector.app.features.files.PortalFileItem
+import io.github.portalappinspector.app.features.network.PortalNetworkCall
 import io.github.portalappinspector.app.ui.*
 import io.github.portalappinspector.app.ui.icons.*
 

@@ -3,6 +3,12 @@ package io.github.portalappinspector.app.data
 import io.github.portalappinspector.PortalManifest
 import kotlinx.serialization.Serializable
 import io.github.portalappinspector.app.util.*
+import kotlinx.serialization.json.Json
+
+internal val StorageJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
 
 @Serializable
 internal data class PortalConnection(
@@ -33,24 +39,22 @@ internal data class PortalLaunchParams(
                 .split("&")
                 .filter { it.contains("=") }
                 .associate {
-                    val key = it.substringBefore("=").queryDecoded()
-                    val value = it.substringAfter("=").queryDecoded()
-                    key to value
+                    it.substringBefore("=") to it.substringAfter("=")
                 }
-            val normalizedParams = params
-                .mapKeys { (key, _) -> key.normalizedQueryKey() }
-            val mobileView = normalizedParams["mobileview"]?.isTruthyQueryValue() == true
-            val isEmulator = normalizedParams["isemulator"]?.isTruthyQueryValue() == true
-            val appId = normalizedParams["appid"]
-            val platform = normalizedParams["platform"]
-            val connection = normalizedParams["host"]
+
+            val mobileView = params["mobileView"] == "true"
+            val isEmulator = params["isEmulator"] == "true"
+            val appId = params["appId"]
+            val platform = params["platform"]
+            val connection = params["host"]
                 ?.takeIf { it.isNotBlank() }
                 ?.let { host ->
                     PortalConnection(
                         host = host,
-                        port = normalizedParams["port"] ?: "4896",
+                        port = params["port"] ?: "4896",
                     )
                 }
+
             return PortalLaunchParams(
                 connection = connection,
                 mobileView = mobileView,
@@ -59,22 +63,8 @@ internal data class PortalLaunchParams(
                 platform = platform,
             )
         }
-
-        internal fun String.normalizedQueryKey(): String =
-            lowercase()
-                .replace("%20", "")
-                .replace("+", "")
-                .replace(" ", "")
-                .replace("-", "")
-                .replace("_", "")
-
-        internal fun String.isTruthyQueryValue(): Boolean =
-            lowercase() in setOf("true", "1", "yes", "y")
     }
 }
-
-internal fun String.queryDecoded(): String =
-    runCatching { platformDecodeURIComponent(replace("+", "%20")) }.getOrDefault(this)
 
 @Serializable
 internal data class SavedPortalConnection(
@@ -131,6 +121,3 @@ internal fun List<SavedPortalConnection>.matchingPackage(appId: String): SavedPo
 internal fun navigateToApp(appId: String) {
     platformNavigateToApp(appId)
 }
-
-internal fun queryEncoded(value: String): String =
-    platformEncodeURIComponent(value)

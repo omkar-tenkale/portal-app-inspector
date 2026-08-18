@@ -59,6 +59,8 @@ import io.github.portalappinspector.app.ui.icons.*
 import io.github.portalappinspector.app.util.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import io.github.portalappinspector.app.features.network.NetworkFilterMode
+import kotlinx.serialization.json.decodeFromJsonElement
 
 @Composable
 internal fun LogsPanel(
@@ -117,7 +119,9 @@ internal fun LogsPanel(
             )
         }.onSuccess { payload ->
             error = null
-            val nextLogs = payload["items"]?.jsonArray?.map(::parseLogEntry).orEmpty()
+            val nextLogs = payload["items"]?.jsonArray?.map({
+                networkJson.decodeFromJsonElement<PortalLogEntry>(it)
+            }).orEmpty()
             val existingIds = logs.mapTo(mutableSetOf()) { it.id }
             logs += nextLogs.filter { existingIds.add(it.id) }
             lastTimestamp = logs.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp

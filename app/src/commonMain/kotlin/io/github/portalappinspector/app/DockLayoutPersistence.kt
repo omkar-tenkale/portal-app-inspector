@@ -5,8 +5,8 @@ import io.github.docklayout.DockColumn
 import io.github.docklayout.DockNode
 import io.github.docklayout.DockPanel
 import io.github.docklayout.DockRow
-import io.github.portalappinspector.app.data.PortalFileItem
-import io.github.portalappinspector.app.data.PortalNetworkCall
+import io.github.portalappinspector.app.features.files.PortalFileItem
+import io.github.portalappinspector.app.features.network.PortalNetworkCall
 import io.github.portalappinspector.app.data.StorageJson
 import io.github.portalappinspector.app.ui.tabs.FilesTab
 import io.github.portalappinspector.app.ui.tabs.LogsTab
@@ -20,8 +20,6 @@ import io.github.portalappinspector.app.util.platformLoadFromStorage
 import io.github.portalappinspector.app.util.platformSaveToStorage
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 
 internal object DockLayoutPersistence {
     private const val StorageKeyPrefix = "portal.app.inspector.dock-layout."

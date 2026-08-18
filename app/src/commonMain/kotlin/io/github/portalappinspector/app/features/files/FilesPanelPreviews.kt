@@ -3,8 +3,6 @@ package io.github.portalappinspector.app.features.files
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
-import io.github.portalappinspector.app.data.PortalFileItem
-import io.github.portalappinspector.app.data.PortalViewedFile
 
 @Preview(heightDp = 400)
 @Composable

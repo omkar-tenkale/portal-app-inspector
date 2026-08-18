@@ -45,8 +45,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.portalappinspector.app.data.PortalFileItem
-import io.github.portalappinspector.app.data.PortalViewedFile
 import io.github.portalappinspector.app.ui.JsonText
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.PulsatingDots

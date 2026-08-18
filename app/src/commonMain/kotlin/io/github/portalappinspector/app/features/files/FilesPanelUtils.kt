@@ -1,7 +1,5 @@
 package io.github.portalappinspector.app.features.files
 
-import io.github.portalappinspector.app.data.PortalFileItem
-
 internal const val FileViewMaxBytes = 512L * 1024L
 
 internal data class FilePathSegment(

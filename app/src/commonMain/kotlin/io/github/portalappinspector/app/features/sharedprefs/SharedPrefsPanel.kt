@@ -51,6 +51,8 @@ import io.github.portalappinspector.app.ui.tabs.*
 import io.github.portalappinspector.app.ui.toast.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import io.github.portalappinspector.app.features.files.PortalFileItem
+import kotlinx.serialization.json.decodeFromJsonElement
 
 @Composable
 internal fun SharedPrefsPanel(
@@ -84,7 +86,9 @@ internal fun SharedPrefsPanel(
                     },
                 )
             }.onSuccess { payload ->
-                val nextPrefs = payload["items"]?.jsonArray?.map(::parseSharedPrefItem).orEmpty()
+                val nextPrefs = payload["items"]?.jsonArray?.map({
+                    networkJson.decodeFromJsonElement<PortalSharedPrefItem>(it)
+                }).orEmpty()
                 prefs = nextPrefs
                 editedValues = nextPrefs.associate { it.key to it.value }
                 if (expandedKey !in nextPrefs.map { it.key }) {

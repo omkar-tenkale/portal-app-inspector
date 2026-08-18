@@ -29,6 +29,7 @@ kotlin {
             implementation(libs.compose.foundation)
             implementation(libs.compose.runtime)
             implementation("org.jetbrains.compose.ui:ui-tooling-preview:1.11.1")
+            implementation("io.viascom.nanoid:nanoid:2.0.1")
             implementation(libs.compose.ui)
             implementation(libs.docklayout)
             implementation(libs.json.tree)

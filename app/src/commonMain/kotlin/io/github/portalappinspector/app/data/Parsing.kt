@@ -1,11 +1,22 @@
 package io.github.portalappinspector.app.data
 
-import androidx.compose.runtime.key
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
-import io.ktor.client.call.body
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
+import io.github.portalappinspector.app.features.files.PortalFileItem
+import io.github.portalappinspector.app.features.logs.PortalLogCallSite
+import io.github.portalappinspector.app.features.logs.PortalLogEntry
+import io.github.portalappinspector.app.features.logs.PortalLogRow
+import io.github.portalappinspector.app.features.network.NetworkFilterMode
+import io.github.portalappinspector.app.features.network.NetworkFilterRule
+import io.github.portalappinspector.app.features.network.NetworkGapType
+import io.github.portalappinspector.app.features.network.NetworkHighlightMatch
+import io.github.portalappinspector.app.features.network.PortalNetworkBodyResponse
+import io.github.portalappinspector.app.features.network.PortalNetworkCall
+import io.github.portalappinspector.app.features.network.PortalNetworkMock
+import io.github.portalappinspector.app.features.network.PortalNetworkMockExpectation
+import io.github.portalappinspector.app.features.network.PortalNetworkMockMatcher
+import io.github.portalappinspector.app.features.network.PortalNetworkMockResponse
+import io.github.portalappinspector.app.features.network.PortalNetworkRow
+import io.github.portalappinspector.app.features.screenmirror.PortalScreenMirrorFrame
+import io.github.portalappinspector.app.features.sharedprefs.PortalSharedPrefItem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.add
@@ -19,99 +30,20 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlin.random.Random
 import io.github.portalappinspector.app.util.*
+import io.viascom.nanoid.NanoId
+import kotlinx.serialization.json.Json
 
-internal fun parseFileItem(value: kotlinx.serialization.json.JsonElement): PortalFileItem {
-    val item = value.jsonObject
-    return PortalFileItem(
-        name = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        path = item["path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        absolutePath = item["absolutePath"]?.jsonPrimitive?.contentOrNull,
-        directory = item["directory"]?.jsonPrimitive?.contentOrNull == "true",
-        sizeBytes = item["sizeBytes"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
-    )
-}
-
-internal fun parseSharedPrefItem(value: JsonElement): PortalSharedPrefItem {
-    val item = value.jsonObject
-    return PortalSharedPrefItem(
-        key = item["key"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        valueType = item["valueType"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        value = item["value"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-    )
-}
-
-internal fun parseNetworkCall(value: kotlinx.serialization.json.JsonElement): PortalNetworkCall {
-    val item = value.jsonObject
-    return PortalNetworkCall(
-        id = item["id"]?.jsonPrimitive?.longOrNull ?: 0L,
-        timestampEpochMillis = item["timestampEpochMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
-        method = item["method"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        url = item["url"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        endpoint = item["endpoint"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        requestHeaders = item["requestHeaders"].parseStringListMap(),
-        requestBody = item["requestBody"]?.jsonPrimitive?.contentOrNull,
-        requestContentType = item["requestContentType"]?.jsonPrimitive?.contentOrNull,
-        requestBodySizeBytes = item["requestBodySizeBytes"]?.jsonPrimitive?.longOrNull,
-        requestBodyTruncated = item["requestBodyTruncated"]?.jsonPrimitive?.booleanOrNull == true,
-        statusCode = item["statusCode"]?.jsonPrimitive?.intOrNull,
-        durationMillis = item["durationMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
-        error = item["error"]?.jsonPrimitive?.contentOrNull,
-        responseHeaders = item["responseHeaders"].parseStringListMap(),
-        responseBody = item["responseBody"]?.jsonPrimitive?.contentOrNull,
-        responseContentType = item["responseContentType"]?.jsonPrimitive?.contentOrNull,
-        responseBodySizeBytes = item["responseBodySizeBytes"]?.jsonPrimitive?.longOrNull,
-        responseBodyTruncated = item["responseBodyTruncated"]?.jsonPrimitive?.booleanOrNull == true,
-        isMocked = item["isMocked"]?.jsonPrimitive?.booleanOrNull == true,
-    )
-}
-
-internal fun parseLogEntry(value: kotlinx.serialization.json.JsonElement): PortalLogEntry {
-    val item = value.jsonObject
-    val callSites = item["callSites"]?.jsonArray?.mapNotNull(::parseLogCallSite).orEmpty()
-    return PortalLogEntry(
-        id = item["id"]?.jsonPrimitive?.longOrNull ?: 0L,
-        timestampEpochMillis = item["timestampEpochMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
-        level = item["level"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        source = item["source"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        stream = item["stream"]?.jsonPrimitive?.contentOrNull,
-        tag = item["tag"]?.jsonPrimitive?.contentOrNull,
-        message = item["message"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        throwable = item["throwable"]?.jsonPrimitive?.contentOrNull,
-        threadName = item["threadName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        location = item["location"]?.let(::parseLogCallSite) ?: callSites.firstOrNull(),
-        callSites = callSites,
-    )
-}
-
-internal fun parseLogCallSite(value: JsonElement): PortalLogCallSite? {
-    val item = runCatching { value.jsonObject }.getOrNull() ?: return null
-    return PortalLogCallSite(
-        className = item["className"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        methodName = item["methodName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        fileName = item["fileName"]?.jsonPrimitive?.contentOrNull,
-        lineNumber = item["lineNumber"]?.jsonPrimitive?.intOrNull,
-    ).takeIf { it.className.isNotBlank() || it.fileName?.isNotBlank() == true }
-}
-
-internal fun parseScreenMirrorFrame(value: JsonElement): PortalScreenMirrorFrame? {
-    val item = runCatching { value.jsonObject }.getOrNull() ?: return null
-    val base64 = item["base64"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
-    return PortalScreenMirrorFrame(
-        updatedAtEpochMillis = item["updatedAtEpochMillis"]?.jsonPrimitive?.longOrNull ?: 0L,
-        base64 = base64,
-        mimeType = item["mimeType"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        format = item["format"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        width = item["width"]?.jsonPrimitive?.intOrNull ?: 0,
-        height = item["height"]?.jsonPrimitive?.intOrNull ?: 0,
-        sizeBytes = item["sizeBytes"]?.jsonPrimitive?.longOrNull ?: 0L,
-    )
+internal val networkJson = Json {
+    ignoreUnknownKeys = true // Ignore extra keys coming from incoming requests
+    encodeDefaults = true    // Include properties with default values when serializing
+    prettyPrint = false      // Keep payload minimal for network transport
 }
 
 internal fun createMockFromCall(call: PortalNetworkCall): PortalNetworkMock {
     val now = nowEpochMillis()
     val urlParts = call.url.networkUrlParts()
     return PortalNetworkMock(
-        id = newMockId(),
+        id = NanoId.generate(),
         enabled = true,
         createdAtEpochMillis = now,
         updatedAtEpochMillis = now,
@@ -131,25 +63,6 @@ internal fun createMockFromCall(call: PortalNetworkCall): PortalNetworkMock {
         ),
     )
 }
-
-internal fun createBlankMock(): PortalNetworkMock {
-    val now = nowEpochMillis()
-    return PortalNetworkMock(
-        id = newMockId(),
-        enabled = true,
-        createdAtEpochMillis = now,
-        updatedAtEpochMillis = now,
-        expectation = PortalNetworkMockExpectation(
-            matchers = listOf(PortalNetworkMockMatcher(type = "methodContains", value = "GET")),
-        ),
-        response = PortalNetworkMockResponse(
-            body = PortalNetworkBodyResponse(),
-        ),
-    )
-}
-
-internal fun newMockId(): String =
-    "mock-${nowEpochMillis()}-${Random.nextInt(100_000, 999_999)}"
 
 internal data class NetworkUrlParts(
     val domain: String,
@@ -288,8 +201,8 @@ private fun String.snippetAround(needle: String, context: Int = 14): String? {
     if (index < 0) return null
     val start = (index - context).coerceAtLeast(0)
     val end = (index + needle.length + context).coerceAtMost(length)
-    val prefix = if (start > 0) "..." else ""
-    val suffix = if (end < length) "..." else ""
+    val prefix = if (start > 0) ".." else ""
+    val suffix = if (end < length) ".." else ""
     return prefix + substring(start, end).replace('\n', ' ').replace('\r', ' ') + suffix
 }
 

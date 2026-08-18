@@ -1,33 +1,13 @@
-package io.github.portalappinspector.app.data
+package io.github.portalappinspector.app.features.files
 
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
+import io.github.portalappinspector.app.data.StorageJson
+import io.github.portalappinspector.app.util.nowEpochMillis
+import io.github.portalappinspector.app.util.platformLoadFromStorage
+import io.github.portalappinspector.app.util.platformSaveToStorage
 import kotlinx.serialization.json.Json
-import io.github.portalappinspector.app.util.*
-
-internal object PortalNetworkMockStore {
-    internal const val StorageKey = "portal.app.inspector.plugin-data.portal-network.network-mocks"
-
-    fun load(packageName: String): List<PortalNetworkMock> =
-        loadAll()[packageName].orEmpty().sortedByDescending { it.updatedAtEpochMillis }
-
-    fun save(packageName: String, mocks: List<PortalNetworkMock>): List<PortalNetworkMock> {
-        val cleaned = mocks.distinctBy { it.id }.sortedByDescending { it.updatedAtEpochMillis }
-        val updated = loadAll() + (packageName to cleaned)
-        runCatching {
-            platformSaveToStorage(StorageKey, StorageJson.encodeToString(updated))
-        }
-        return cleaned
-    }
-
-    internal fun loadAll(): Map<String, List<PortalNetworkMock>> =
-        runCatching {
-            val raw = platformLoadFromStorage(StorageKey) ?: return emptyMap()
-            StorageJson.decodeFromString<Map<String, List<PortalNetworkMock>>>(raw)
-        }.getOrDefault(emptyMap())
-}
 
 internal object PortalFilePinStore {
+
     internal const val StorageKey = "portal.app.inspector.plugin-data.portal-files.pinned-paths"
 
     fun load(): List<PortalPinnedFileItem> =
@@ -65,9 +45,4 @@ internal object PortalFilePinStore {
         }
         return cleaned
     }
-}
-
-internal val StorageJson = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
 }
