@@ -1,5 +1,6 @@
 package io.github.portalappinspector.app.features.screenmirror
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +28,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangedIgnoreConsumed
 import androidx.compose.ui.unit.IntSize
@@ -65,6 +68,8 @@ internal fun ScreenMirrorPanel(
     val fps = ScreenMirrorFpsLevels[fpsIndex]
     val bitmap = remember(frameBytes) { frameBytes?.toImageBitmapOrNull() }
     val touchEvents = remember(connection) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
+    var pointerPosition by remember { mutableStateOf<Offset?>(null) }
+    var isPointerPressed by remember { mutableStateOf(false) }
 
     fun queueTouch(action: String, position: Offset, size: IntSize) {
         if (!enabled || !connection.isValid || !inputConnected || size.width <= 0 || size.height <= 0) return
@@ -165,6 +170,7 @@ internal fun ScreenMirrorPanel(
                 .clip(RoundedCornerShape(6.dp))
                 .background(Color.Black)
                 .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp))
+                .pointerHoverIcon(if (pointerPosition != null) PointerIcon.Crosshair else PointerIcon.Default)
                 .pointerInput(enabled, connection, bitmap != null) {
                     if (!enabled || bitmap == null) return@pointerInput
                     var activePointerId: PointerId? = null
@@ -175,6 +181,15 @@ internal fun ScreenMirrorPanel(
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val bounds = size
+                                val firstChange = event.changes.firstOrNull()
+                                if (firstChange != null) {
+                                    val normalized = firstChange.position.normalizedInFittedFrame(bounds, frame, clampOutsideFrame = false)
+                                    if (normalized != null && event.type != androidx.compose.ui.input.pointer.PointerEventType.Exit) {
+                                        pointerPosition = firstChange.position
+                                    } else {
+                                        pointerPosition = null
+                                    }
+                                }
                                 val activeChange = activePointerId?.let { id ->
                                     event.changes.firstOrNull { it.id == id }
                                 }
@@ -184,6 +199,7 @@ internal fun ScreenMirrorPanel(
                                         activePointerId = down.id
                                         lastPosition = down.position
                                         lastSize = bounds
+                                        isPointerPressed = true
                                         queueTouch("down", down.position, bounds)
                                         down.consume()
                                     }
@@ -192,11 +208,13 @@ internal fun ScreenMirrorPanel(
                                     lastSize = bounds
                                     when {
                                         activeChange.changedToUpIgnoreConsumed() -> {
+                                            isPointerPressed = false
                                             queueTouch("up", activeChange.position, bounds)
                                             activePointerId = null
                                             activeChange.consume()
                                         }
                                         !activeChange.pressed -> {
+                                            isPointerPressed = false
                                             queueTouch("cancel", activeChange.position, bounds)
                                             activePointerId = null
                                             activeChange.consume()
@@ -213,6 +231,7 @@ internal fun ScreenMirrorPanel(
                         if (activePointerId != null) {
                             queueTouch("cancel", lastPosition, lastSize)
                         }
+                        isPointerPressed = false
                     }
                 },
             contentAlignment = Alignment.Center,
@@ -224,6 +243,29 @@ internal fun ScreenMirrorPanel(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
+                pointerPosition?.let { pos ->
+                    val pointerScale by animateFloatAsState(
+                        targetValue = if (isPointerPressed) 0.7f else 1.0f,
+                        label = "pointerScale"
+                    )
+
+                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                        val baseRadius = 24.dp.toPx()
+                        val currentRadius = baseRadius * pointerScale
+
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.1f),
+                            radius = currentRadius,
+                            center = pos
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.5f),
+                            radius = currentRadius,
+                            center = pos,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
+                        )
+                    }
+                }
             } else if (error == null) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
