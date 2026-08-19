@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangedIgnoreConsumed
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,8 +41,6 @@ import io.github.portalappinspector.app.data.PortalConnection
 import io.github.portalappinspector.app.data.PortalSourceClient
 import io.github.portalappinspector.app.data.ScreenMirrorPluginId
 import io.github.portalappinspector.app.ui.PortalColors
-import io.github.portalappinspector.app.ui.PortalButton
-import io.github.portalappinspector.app.ui.PortalButtonKind
 import io.github.portalappinspector.app.ui.PulsatingDots
 import io.github.portalappinspector.app.ui.RowDivider
 import io.github.portalappinspector.app.ui.StatusCard
@@ -63,13 +63,15 @@ internal fun ScreenMirrorPanel(
     var frame by remember(connection) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }
     var frameBytes by remember(connection) { mutableStateOf<ByteArray?>(null) }
     var error by remember(connection) { mutableStateOf<String?>(null) }
-    var fpsIndex by remember(connection) { mutableStateOf(0) }
     var inputConnected by remember(connection) { mutableStateOf(false) }
-    val fps = ScreenMirrorFpsLevels[fpsIndex]
-    val bitmap = remember(frameBytes) { frameBytes?.toImageBitmapOrNull() }
-    val touchEvents = remember(connection) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
+    
     var pointerPosition by remember { mutableStateOf<Offset?>(null) }
     var isPointerPressed by remember { mutableStateOf(false) }
+    
+    val fps = if (pointerPosition != null || isPointerPressed) 30 else 2
+    
+    val bitmap = remember(frameBytes) { frameBytes?.toImageBitmapOrNull() }
+    val touchEvents = remember(connection) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
 
     fun queueTouch(action: String, position: Offset, size: IntSize) {
         if (!enabled || !connection.isValid || !inputConnected || size.width <= 0 || size.height <= 0) return
@@ -156,9 +158,6 @@ internal fun ScreenMirrorPanel(
         ScreenMirrorHeader(
             frame = frame,
             fps = fps,
-            onToggleFps = {
-                fpsIndex = (fpsIndex + 1) % ScreenMirrorFpsLevels.size
-            },
         )
         RowDivider()
         error?.let {
@@ -333,8 +332,6 @@ private data class ScreenMirrorFrameMetadata(
     val sizeBytes: Long,
 )
 
-private val ScreenMirrorFpsLevels = listOf(2, 5, 10, 15, 30)
-
 private fun screenMirrorSocketUrl(connection: PortalConnection, streamPath: String, fps: Int?): String {
     val baseUrl = connection.baseUrl.trimEnd('/')
     val wsBaseUrl = when {
@@ -384,7 +381,6 @@ private fun Int.writeLittleEndian(target: ByteArray, offset: Int) {
 private fun ScreenMirrorHeader(
     frame: ScreenMirrorFrameMetadata?,
     fps: Int,
-    onToggleFps: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -401,11 +397,20 @@ private fun ScreenMirrorHeader(
                 maxLines = 1,
             )
         }
-        PortalButton(
-            text = "$fps FPS",
-            onClick = onToggleFps,
-            kind = PortalButtonKind.Primary,
-            modifier = Modifier.height(26.dp),
-        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(PortalColors.button)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (fps >= 30) "30 FPS (Active)" else "2 FPS (Idle)",
+                color = PortalColors.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
     }
 }
