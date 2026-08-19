@@ -1,9 +1,11 @@
 package io.github.portalappinspector.app.features.logs
 
 import io.github.portalappinspector.app.data.toJsonArray
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
+@Serializable
 internal data class PortalLogEntry(
     val id: Long,
     val timestampEpochMillis: Long,
@@ -18,6 +20,7 @@ internal data class PortalLogEntry(
     val callSites: List<PortalLogCallSite>,
 )
 
+@Serializable
 internal data class PortalLogCallSite(
     val className: String,
     val methodName: String,

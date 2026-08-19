@@ -20,7 +20,7 @@ internal data class PortalPinnedFileItem(
             sizeBytes = sizeBytes,
         )
 }
-
+@Serializable
 internal data class PortalFileItem(
     val name: String,
     val path: String,

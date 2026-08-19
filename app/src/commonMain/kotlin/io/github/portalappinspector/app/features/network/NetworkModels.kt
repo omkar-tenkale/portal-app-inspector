@@ -7,6 +7,7 @@ internal data class PortalNetworkErrorResponse(
     val type: String,
 )
 
+@Serializable
 internal data class PortalNetworkCall(
     val id: Long,
     val timestampEpochMillis: Long,
