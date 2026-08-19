@@ -44,72 +44,65 @@ internal fun LogsPanel(
     client: PortalSourceClient,
     enabled: Boolean,
 ) {
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var lastTimestamp by remember(connection) { mutableStateOf(0L) }
-    var filterMode by remember(connection) { mutableStateOf(NetworkFilterMode.Include) }
-    var filterType by remember(connection) { mutableStateOf(LogFilterTypes.first()) }
-    var filterValue by remember(connection) { mutableStateOf("") }
-    var filters by remember(connection) { mutableStateOf(emptyList<LogFilterRule>()) }
-    val logs = remember(connection) { mutableStateListOf<PortalLogEntry>() }
+    val state = remember { LogsPanelState() }
     val logListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
     val use12HourClock = remember { jsUses12HourClock() }
     var logDisplayNowEpochMillis by remember { mutableStateOf(nowEpochMillis()) }
     val sourceFilter = remember { PortalLogsFilter(sources = setOf(AndroidLogSource)) }
     val filterKey = sourceFilter.signature()
-    val filteredLogs = logs.asReversed().filter { entry ->
-        entry.source == AndroidLogSource && filters.matchesLogEntry(entry)
+    val filteredLogs = state.logs.asReversed().filter { entry ->
+        entry.source == AndroidLogSource && state.filters.matchesLogEntry(entry)
     }
-    val logGapThresholdMillis = if (filters.any { it.mode != NetworkFilterMode.Highlight }) {
+    val logGapThresholdMillis = if (state.filters.any { it.mode != NetworkFilterMode.Highlight }) {
         FilteredLogGapThresholdMillis
     } else {
         LogGapThresholdMillis
     }
-    val logRows = remember(logs.size, logs.firstOrNull()?.id, logs.lastOrNull()?.id, filters.signature(), logGapThresholdMillis) {
+    val logRows = remember(state.logs.size, state.logs.firstOrNull()?.id, state.logs.lastOrNull()?.id, state.filters.signature(), logGapThresholdMillis) {
         filteredLogs.toLogRows(logGapThresholdMillis)
     }
 
     fun addFilter(selectedMode: NetworkFilterMode, selectedType: String) {
-        val value = filterValue.trim()
+        val value = state.filterValue.trim()
         if (value.isBlank()) return
-        filters = (filters + LogFilterRule(selectedMode, selectedType, value)).distinct()
-        filterValue = ""
+        state.filters = (state.filters + LogFilterRule(selectedMode, selectedType, value)).distinct()
+        state.filterValue = ""
     }
 
     fun removeFilter(index: Int) {
-        filters = filters.filterIndexed { filterIndex, _ -> filterIndex != index }
+        state.filters = state.filters.filterIndexed { filterIndex, _ -> filterIndex != index }
     }
 
     suspend fun loadNewLogs() {
-        loading = true
+        state.loading = true
         runCatching {
             client.request(
                 connection = connection,
                 pluginId = LogsPluginId,
                 payload = buildJsonObject {
                     put("type", "listAfter")
-                    put("logsAfterEpochMillis", lastTimestamp)
+                    put("logsAfterEpochMillis", state.lastTimestamp)
                     put("filter", sourceFilter.toJson())
                 },
             )
         }.onSuccess { payload ->
-            error = null
+            state.error = null
             val nextLogs = payload["items"]?.jsonArray?.map({
                 networkJson.decodeFromJsonElement<PortalLogEntry>(it)
             }).orEmpty()
-            val existingIds = logs.mapTo(mutableSetOf()) { it.id }
-            logs += nextLogs.filter { existingIds.add(it.id) }
-            lastTimestamp = logs.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
+            val existingIds = state.logs.mapTo(mutableSetOf()) { it.id }
+            state.logs += nextLogs.filter { existingIds.add(it.id) }
+            state.lastTimestamp = state.logs.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
         }.onFailure { throwable ->
-            error = throwable.message ?: throwable::class.simpleName
+            state.error = throwable.message ?: throwable::class.simpleName
         }
-        loading = false
+        state.loading = false
     }
 
     LaunchedEffect(enabled, connection, filterKey) {
-        logs.clear()
-        lastTimestamp = 0L
+        state.logs.clear()
+        state.lastTimestamp = 0L
         if (!enabled || !connection.isValid) return@LaunchedEffect
 
         while (true) {
@@ -140,32 +133,32 @@ internal fun LogsPanel(
             return@Column
         }
         LogsFilterBar(
-            filters = filters,
-            filterMode = filterMode,
-            filterType = filterType,
-            filterValue = filterValue,
-            onFilterModeChange = { filterMode = it },
+            filters = state.filters,
+            filterMode = state.filterMode,
+            filterType = state.filterType,
+            filterValue = state.filterValue,
+            onFilterModeChange = { state.filterMode = it },
             onFilterTypeChange = {
-                filterType = it
-                filterValue = ""
+                state.filterType = it
+                state.filterValue = ""
             },
-            onFilterValueChange = { filterValue = it },
+            onFilterValueChange = { state.filterValue = it },
             onAddFilter = ::addFilter,
             onDeleteFilter = ::removeFilter,
             onClear = {
-                lastTimestamp = logs.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
-                logs.clear()
+                state.lastTimestamp = state.logs.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
+                state.logs.clear()
             },
-            clearEnabled = logs.isNotEmpty(),
+            clearEnabled = state.logs.isNotEmpty(),
         )
-        LogsTimelineHeader(loading)
-        error?.let {
+        LogsTimelineHeader(state.loading)
+        state.error?.let {
             StatusCard("Logs request failed", it, PortalColors.error)
         }
-        if (logs.isEmpty() && !loading && error == null) {
+        if (state.logs.isEmpty() && !state.loading && state.error == null) {
             StatusCard("No logs captured", "Trigger Android Log calls in the source app.", PortalColors.muted)
         }
-        if (logs.isNotEmpty() && filteredLogs.isEmpty()) {
+        if (state.logs.isNotEmpty() && filteredLogs.isEmpty()) {
             StatusCard("No matching logs", "Adjust the log filter.", PortalColors.muted)
         }
         LazyColumn(
@@ -179,7 +172,7 @@ internal fun LogsPanel(
                         nowEpochMillis = logDisplayNowEpochMillis,
                         timezoneOffsetMinutes = timezoneOffsetMinutes,
                         use12HourClock = use12HourClock,
-                        highlight = filters.firstHighlightFor(row.entry),
+                        highlight = state.filters.firstHighlightFor(row.entry),
                     )
                     is PortalLogRow.Gap -> LogGapRow(row.durationMillis)
                 }

@@ -36,31 +36,19 @@ internal fun NetworkPanel(
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
     mobileView: Boolean = false,
 ) {
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var mockSyncError by remember { mutableStateOf<String?>(null) }
-    var lastTimestamp by remember(connection) { mutableStateOf(0L) }
-    var bodySheetCall by remember { mutableStateOf<PortalNetworkCall?>(null) }
-    var mockEditorInitial by remember { mutableStateOf<PortalNetworkMock?>(null) }
-    var mocksSheetOpen by remember { mutableStateOf(false) }
-    var filterMode by remember(connection) { mutableStateOf(NetworkFilterMode.Include) }
-    var filterType by remember(connection) { mutableStateOf(NetworkFilterTypes.first()) }
-    var filterValue by remember(connection) { mutableStateOf("") }
-    var filters by remember(connection) { mutableStateOf(emptyList<NetworkFilterRule>()) }
-    val calls = remember(connection) { mutableStateListOf<PortalNetworkCall>() }
+    val state = remember(connection, appId) { NetworkPanelState(appId, connection) }
     val networkListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
     val use12HourClock = remember { jsUses12HourClock() }
     var networkDisplayNowEpochMillis by remember { mutableStateOf(nowEpochMillis()) }
     val mockScope = rememberCoroutineScope()
-    val mockPackageKey = appId ?: connection.baseUrl
-    var mocks by remember(mockPackageKey) { mutableStateOf(PortalNetworkMockStore.load(mockPackageKey)) }
-    val filteredCalls = calls.asReversed().filter { call -> filters.matchesNetworkCall(call) }
+    
+    val filteredCalls = state.calls.asReversed().filter { call -> state.filters.matchesNetworkCall(call) }
     val networkRows = remember(filteredCalls, networkDisplayNowEpochMillis) {
         filteredCalls.toNetworkRows(networkDisplayNowEpochMillis)
     }
 
-    suspend fun syncMocks(nextMocks: List<PortalNetworkMock> = mocks) {
+    suspend fun syncMocks(nextMocks: List<PortalNetworkMock> = state.mocks) {
         if (!enabled || !connection.isValid) return
         runCatching {
             client.request(
@@ -72,48 +60,48 @@ internal fun NetworkPanel(
                 },
             )
         }.onSuccess {
-            mockSyncError = null
+            state.mockSyncError = null
         }.onFailure { throwable ->
-            mockSyncError = throwable.message ?: throwable::class.simpleName
+            state.mockSyncError = throwable.message ?: throwable::class.simpleName
         }
     }
 
     fun updateMocks(nextMocks: List<PortalNetworkMock>) {
-        val saved = PortalNetworkMockStore.save(mockPackageKey, nextMocks)
-        mocks = saved
+        val saved = PortalNetworkMockStore.save(state.mockPackageKey, nextMocks)
+        state.mocks = saved
         mockScope.launch {
             syncMocks(saved)
         }
     }
 
     suspend fun loadNewCalls() {
-        loading = true
+        state.loading = true
         runCatching {
             client.request(
                 connection = connection,
                 pluginId = NetworkPluginId,
                 payload = buildJsonObject {
                     put("type", "listAfter")
-                    put("afterTimestampEpochMillis", lastTimestamp)
+                    put("afterTimestampEpochMillis", state.lastTimestamp)
                 },
             )
         }.onSuccess { payload ->
-            error = null
+            state.error = null
             val nextCalls = payload["items"]?.jsonArray?.map({
                 networkJson.decodeFromJsonElement<PortalNetworkCall>(it)
             }).orEmpty()
-            val existingIds = calls.mapTo(mutableSetOf()) { it.id }
-            calls += nextCalls.filter { existingIds.add(it.id) }
-            lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
+            val existingIds = state.calls.mapTo(mutableSetOf()) { it.id }
+            state.calls += nextCalls.filter { existingIds.add(it.id) }
+            state.lastTimestamp = state.calls.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
         }.onFailure { throwable ->
-            error = throwable.message ?: throwable::class.simpleName
+            state.error = throwable.message ?: throwable::class.simpleName
         }
-        loading = false
+        state.loading = false
     }
 
-    LaunchedEffect(enabled, connection, mockPackageKey) {
-        calls.clear()
-        lastTimestamp = 0L
+    LaunchedEffect(enabled, connection, state.mockPackageKey) {
+        state.calls.clear()
+        state.lastTimestamp = 0L
         if (!enabled || !connection.isValid) return@LaunchedEffect
 
         syncMocks()
@@ -157,8 +145,8 @@ internal fun NetworkPanel(
                     ) {
                         NetworkDetailActionButton(
                             icon = PortalTabIcons.Mock,
-                            text = "Mocks ${mocks.count { it.enabled }}",
-                            onClick = { mocksSheetOpen = true },
+                            text = "Mocks ${state.mocks.count { it.enabled }}",
+                            onClick = { state.mocksSheetOpen = true },
                             enabled = enabled,
                             modifier = Modifier.height(28.dp),
                         )
@@ -167,39 +155,39 @@ internal fun NetworkPanel(
                             icon = PortalTabIcons.Delete,
                             text = "Clear",
                             onClick = {
-                                lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
-                                calls.clear()
+                                state.lastTimestamp = state.calls.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
+                                state.calls.clear()
                             },
-                            enabled = calls.isNotEmpty(),
+                            enabled = state.calls.isNotEmpty(),
                             modifier = Modifier.height(28.dp),
                         )
                     }
                     NetworkFilterBar(
-                        filters = filters,
-                        filterMode = filterMode,
-                        filterType = filterType,
-                        filterValue = filterValue,
-                        onFilterModeChange = { filterMode = it },
+                        filters = state.filters,
+                        filterMode = state.filterMode,
+                        filterType = state.filterType,
+                        filterValue = state.filterValue,
+                        onFilterModeChange = { state.filterMode = it },
                         onFilterTypeChange = {
-                            filterType = it
-                            filterValue = ""
+                            state.filterType = it
+                            state.filterValue = ""
                         },
-                        onFilterValueChange = { filterValue = it },
+                        onFilterValueChange = { state.filterValue = it },
                         onAddFilter = { selectedMode, selectedType ->
                             val nextFilter = NetworkFilterRule(
                                 mode = selectedMode,
                                 matcher = PortalNetworkMockMatcher(
                                     type = selectedType,
-                                    value = filterValue.trim(),
+                                    value = state.filterValue.trim(),
                                 ),
                             )
                             if (nextFilter.matcher.value.isNotBlank()) {
-                                filters = filters + nextFilter
-                                filterValue = ""
+                                state.filters = state.filters + nextFilter
+                                state.filterValue = ""
                             }
                         },
                         onDeleteFilter = { deleteIndex ->
-                            filters = filters.filterIndexed { index, _ -> index != deleteIndex }
+                            state.filters = state.filters.filterIndexed { index, _ -> index != deleteIndex }
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -213,39 +201,39 @@ internal fun NetworkPanel(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     NetworkFilterBar(
-                        filters = filters,
-                        filterMode = filterMode,
-                        filterType = filterType,
-                        filterValue = filterValue,
-                        onFilterModeChange = { filterMode = it },
+                        filters = state.filters,
+                        filterMode = state.filterMode,
+                        filterType = state.filterType,
+                        filterValue = state.filterValue,
+                        onFilterModeChange = { state.filterMode = it },
                         onFilterTypeChange = {
-                            filterType = it
-                            filterValue = ""
+                            state.filterType = it
+                            state.filterValue = ""
                         },
-                        onFilterValueChange = { filterValue = it },
+                        onFilterValueChange = { state.filterValue = it },
                         onAddFilter = { selectedMode, selectedType ->
                             val nextFilter = NetworkFilterRule(
                                 mode = selectedMode,
                                 matcher = PortalNetworkMockMatcher(
                                     type = selectedType,
-                                    value = filterValue.trim(),
+                                    value = state.filterValue.trim(),
                                 ),
                             )
                             if (nextFilter.matcher.value.isNotBlank()) {
-                                filters = filters + nextFilter
-                                filterValue = ""
+                                state.filters = state.filters + nextFilter
+                                state.filterValue = ""
                             }
                         },
                         onDeleteFilter = { deleteIndex ->
-                            filters = filters.filterIndexed { index, _ -> index != deleteIndex }
+                            state.filters = state.filters.filterIndexed { index, _ -> index != deleteIndex }
                         },
                         modifier = Modifier.weight(1f),
                     )
                     NetworkPanelToolbarDivider()
                     NetworkDetailActionButton(
                         icon = PortalTabIcons.Mock,
-                        text = "Mocks ${mocks.count { it.enabled }}",
-                        onClick = { mocksSheetOpen = true },
+                        text = "Mocks ${state.mocks.count { it.enabled }}",
+                        onClick = { state.mocksSheetOpen = true },
                         enabled = enabled,
                         modifier = Modifier.height(28.dp),
                     )
@@ -253,10 +241,10 @@ internal fun NetworkPanel(
                         icon = PortalTabIcons.Delete,
                         text = "Clear",
                         onClick = {
-                            lastTimestamp = calls.maxOfOrNull { it.timestampEpochMillis } ?: lastTimestamp
-                            calls.clear()
+                            state.lastTimestamp = state.calls.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
+                            state.calls.clear()
                         },
-                        enabled = calls.isNotEmpty(),
+                        enabled = state.calls.isNotEmpty(),
                         modifier = Modifier.height(28.dp),
                     )
                 }
@@ -265,16 +253,16 @@ internal fun NetworkPanel(
                 StatusCard("Network plugin unavailable", "Install the portal-network plugin in the source app.", PortalColors.warning)
                 return@Column
             }
-            error?.let {
+            state.error?.let {
                 StatusCard("Network request failed", it, PortalColors.error)
             }
-            mockSyncError?.let {
+            state.mockSyncError?.let {
                 StatusCard("Mock sync failed", it, PortalColors.warning)
             }
-            if (calls.isEmpty() && !loading) {
+            if (state.calls.isEmpty() && !state.loading) {
                 StatusCard("No traffic captured", "Trigger a Retrofit request in the source app.", PortalColors.muted)
             }
-            if (calls.isNotEmpty() && filteredCalls.isEmpty()) {
+            if (state.calls.isNotEmpty() && filteredCalls.isEmpty()) {
                 StatusCard("No matching traffic", "Adjust the network request filter.", PortalColors.muted)
             }
             LazyColumn(
@@ -288,8 +276,8 @@ internal fun NetworkPanel(
                             nowEpochMillis = networkDisplayNowEpochMillis,
                             timezoneOffsetMinutes = timezoneOffsetMinutes,
                             use12HourClock = use12HourClock,
-                            highlight = filters.firstHighlightFor(row.call),
-                            onViewBody = { bodySheetCall = row.call },
+                            highlight = state.filters.firstHighlightFor(row.call),
+                            onViewBody = { state.bodySheetCall = row.call },
                         )
                         is PortalNetworkRow.Gap -> NetworkGapRow(
                             type = row.type,
@@ -301,26 +289,26 @@ internal fun NetworkPanel(
                 }
             }
         }
-        bodySheetCall?.let { call ->
+        state.bodySheetCall?.let { call ->
             ResponseBodySheet(
                 call = call,
-                onDismiss = { bodySheetCall = null },
+                onDismiss = { state.bodySheetCall = null },
                 onOpenTab = {
-                    bodySheetCall = null
+                    state.bodySheetCall = null
                     onOpenResponseTab(call)
                 },
                 onMock = {
-                    bodySheetCall = null
-                    mockEditorInitial = createMockFromCall(call)
+                    state.bodySheetCall = null
+                    state.mockEditorInitial = createMockFromCall(call)
                 },
             )
         }
-        if (mocksSheetOpen) {
+        if (state.mocksSheetOpen) {
             NetworkMocksSheet(
-                mocks = mocks,
-                onDismiss = { mocksSheetOpen = false },
+                mocks = state.mocks,
+                onDismiss = { state.mocksSheetOpen = false },
                 onAdd = {
-                    mocksSheetOpen = false
+                    state.mocksSheetOpen = false
                     fun createBlankMock(): PortalNetworkMock {
                         val now = nowEpochMillis()
                         return PortalNetworkMock(
@@ -336,15 +324,15 @@ internal fun NetworkPanel(
                             ),
                         )
                     }
-                    mockEditorInitial = createBlankMock()
+                    state.mockEditorInitial = createBlankMock()
                 },
                 onEdit = { mock ->
-                    mocksSheetOpen = false
-                    mockEditorInitial = mock
+                    state.mocksSheetOpen = false
+                    state.mockEditorInitial = mock
                 },
                 onToggle = { mock, enabled ->
                     updateMocks(
-                        mocks.map {
+                        state.mocks.map {
                             if (it.id == mock.id) {
                                 it.copy(enabled = enabled, updatedAtEpochMillis = nowEpochMillis())
                             } else {
@@ -354,16 +342,16 @@ internal fun NetworkPanel(
                     )
                 },
                 onDelete = { mock ->
-                    updateMocks(mocks.filterNot { it.id == mock.id })
+                    updateMocks(state.mocks.filterNot { it.id == mock.id })
                 },
             )
         }
-        mockEditorInitial?.let { initialMock ->
+        state.mockEditorInitial?.let { initialMock ->
             NetworkMockEditorSheet(
                 initialMock = initialMock,
-                onDismiss = { mockEditorInitial = null },
+                onDismiss = { state.mockEditorInitial = null },
                 onSave = { savedMock ->
-                    updateMocks(mocks.filterNot { it.id == savedMock.id } + savedMock)
+                    updateMocks(state.mocks.filterNot { it.id == savedMock.id } + savedMock)
                 },
             )
         }

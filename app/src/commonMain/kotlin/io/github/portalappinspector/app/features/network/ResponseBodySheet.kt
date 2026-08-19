@@ -514,11 +514,7 @@ internal fun isJsonContentType(contentType: String?): Boolean {
 @Preview
 @Composable
 private fun ResponseBodySheetPreview() {
-    val call = PortalNetworkCall(
-        id = 1L, timestampEpochMillis = 1690000000000L, method = "GET", url = "https://api.test.com/v1/users", endpoint = "/v1/users",
-        statusCode = 200, durationMillis = 145L, error = null, responseBody = "{\"status\": \"ok\"}", responseContentType = "application/json",
-        responseBodySizeBytes = 24L, responseBodyTruncated = false, isMocked = true
-    )
+    val call = io.github.portalappinspector.app.PreviewFixtures.dummyNetworkCall
     Box(Modifier.background(PortalColors.background).fillMaxSize()) {
         ResponseBodySheet(call = call, onDismiss = {}, onOpenTab = {}, onMock = {})
     }
