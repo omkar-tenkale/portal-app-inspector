@@ -7,12 +7,12 @@ import io.github.portalappinspector.app.util.platformSaveToStorage
 internal object PortalNetworkMockStore {
     internal const val StorageKey = "portal.app.inspector.plugin-data.portal-network.network-mocks"
 
-    fun load(packageName: String): List<PortalNetworkMock> =
-        loadAll()[packageName].orEmpty().sortedByDescending { it.updatedAtEpochMillis }
+    fun load(appId: String): List<PortalNetworkMock> =
+        loadAll()[appId].orEmpty().sortedByDescending { it.updatedAtEpochMillis }
 
-    fun save(packageName: String, mocks: List<PortalNetworkMock>): List<PortalNetworkMock> {
+    fun save(appId: String, mocks: List<PortalNetworkMock>): List<PortalNetworkMock> {
         val cleaned = mocks.distinctBy { it.id }.sortedByDescending { it.updatedAtEpochMillis }
-        val updated = loadAll() + (packageName to cleaned)
+        val updated = loadAll() + (appId to cleaned)
         runCatching {
             platformSaveToStorage(StorageKey, StorageJson.encodeToString(updated))
         }
