@@ -1,15 +1,11 @@
 package io.github.portalappinspector.app
 
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -21,21 +17,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import io.github.docklayout.DockLayout
 import io.github.docklayout.rememberDockState
 import io.github.docklayout.tabRenderers
-import io.github.portalappinspector.PortalHealth
 import io.github.portalappinspector.PortalManifest
-import io.github.portalappinspector.app.data.LogsPluginId
-import io.github.portalappinspector.app.data.NetworkPluginId
 import io.github.portalappinspector.app.data.PortalConnection
 import io.github.portalappinspector.app.data.PortalConnectionStore
 import io.github.portalappinspector.app.data.PortalLaunchParams
+import io.github.portalappinspector.app.data.PortalSession
 import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.ScreenMirrorPluginId
-import io.github.portalappinspector.app.data.SharedPrefsPluginId
-import io.github.portalappinspector.app.data.matchingPackage
 import io.github.portalappinspector.app.data.navigateToApp
 import io.github.portalappinspector.app.features.files.FilesPanel
 import io.github.portalappinspector.app.features.files.FilesPanelState
@@ -47,8 +42,9 @@ import io.github.portalappinspector.app.features.network.PortalNetworkCall
 import io.github.portalappinspector.app.features.screenmirror.ScreenMirrorPanel
 import io.github.portalappinspector.app.features.sharedprefs.SharedPrefsPanel
 import io.github.portalappinspector.app.ui.PortalColors
+import io.github.portalappinspector.app.ui.PortalVectorIconButton
+import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.ui.UnsupportedPluginPanel
-import io.github.portalappinspector.app.ui.connection.MobileConnectionState
 import io.github.portalappinspector.app.ui.connection.WelcomeConnectionPanel
 import io.github.portalappinspector.app.ui.tabs.FilesTab
 import io.github.portalappinspector.app.ui.tabs.LogsTab
@@ -59,6 +55,7 @@ import io.github.portalappinspector.app.ui.tabs.PortalTabIcon
 import io.github.portalappinspector.app.ui.tabs.ScreenMirrorTab
 import io.github.portalappinspector.app.ui.tabs.SharedPrefsTab
 import io.github.portalappinspector.app.ui.tabs.UnsupportedPluginTab
+import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import io.github.portalappinspector.app.ui.toast.LocalToastHost
 import io.github.portalappinspector.app.ui.toast.ToastHost
 import io.github.portalappinspector.app.ui.toast.ToastHostState
@@ -72,27 +69,20 @@ internal fun PortalApp() {
     CompositionLocalProvider(LocalToastHost provides toastHost) {
         val launchParams = remember { PortalLaunchParams.fromUrl() }
         val mobileView = launchParams.mobileView
-        val appId = launchParams.appId
-        val initialConnection = remember(launchParams) {
-            launchParams.connection
-                ?: PortalConnectionStore.latest()?.toPortalConnection()
-                ?: PortalConnection("", "")
-        }
-        var connection by remember { mutableStateOf(initialConnection) }
         val client = remember { PortalSourceClient() }
-        var health by remember { mutableStateOf<PortalHealth?>(null) }
-        var manifest by remember { mutableStateOf<PortalManifest?>(null) }
-        var connectingManifest by remember { mutableStateOf<PortalManifest?>(null) }
-        var error by remember { mutableStateOf<String?>(null) }
+        var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
+        var connectionCandidate by remember {
+            mutableStateOf(launchParams.connection ?: savedConnections.firstOrNull()?.connection)
+        }
+        var activeSession by remember { mutableStateOf<PortalSession?>(null) }
+        var connectionFailing by remember { mutableStateOf(false) }
+        var showOverlayConnectionDialog by remember { mutableStateOf(false) }
         var connecting by remember { mutableStateOf(false) }
         var showSetupRequired by remember { mutableStateOf(false) }
-        var currentAppId by remember { mutableStateOf(appId) }
+        var connectingManifest by remember { mutableStateOf<PortalManifest?>(null) }
         var layoutRevision by remember { mutableStateOf(0) }
-        var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
-        val filesPanelState = remember(currentAppId) { FilesPanelState(currentAppId ?: "default") }
         val dynamicTabs = remember { mutableStateListOf<PortalTab>() }
         var activeTabRequest by remember { mutableStateOf<PortalTab?>(null) }
-        var persistedLayout by remember(currentAppId) { mutableStateOf(DockLayoutPersistence.load(currentAppId)) }
 
         fun openResponseTab(call: PortalNetworkCall) {
             val tab = NetworkResponseTab(call)
@@ -110,53 +100,39 @@ internal fun PortalApp() {
             layoutRevision += 1
         }
 
-        suspend fun connectOnce(targetConnection: PortalConnection): Boolean =
-            runCatching {
-                val nextHealth = client.health(targetConnection)
-                val nextManifest = client.manifest(targetConnection)
-                health = nextHealth
-                connectingManifest = nextManifest
-                savedConnections = PortalConnectionStore.upsert(nextManifest, targetConnection)
-                currentAppId = nextManifest.appId
-                persistedLayout = DockLayoutPersistence.load(nextManifest.appId)
-                navigateToApp(nextManifest.appId)
-                delay(520L)
-                manifest = nextManifest
-            }.onFailure { throwable ->
-                health = null
-                connectingManifest = null
-                error = throwable.message ?: throwable::class.simpleName
-            }.isSuccess
-
-        LaunchedEffect(connection) {
-            if (connection.isValid) {
-                val targetConnection = connection
-                connecting = true
-                showSetupRequired = false
-                error = null
-                health = null
-                manifest = null
-                connectingManifest = null
-                val setupTimer = launch {
-                    delay(1_000L)
-                    if (manifest == null && connectingManifest == null) {
-                        showSetupRequired = true
-                    }
-                }
-                while (manifest == null) {
-                    if (connectOnce(targetConnection)) break
-                    delay(1_000L)
-                    showSetupRequired = true
-                }
-                setupTimer.cancel()
-                connecting = false
-            } else {
-                connecting = false
-                showSetupRequired = false
-                health = null
-                manifest = null
-                connectingManifest = null
+        LaunchedEffect(connectionCandidate) {
+            val target = connectionCandidate ?: return@LaunchedEffect
+            connecting = true
+            showSetupRequired = false
+            connectingManifest = null
+            val setupTimer = launch {
+                delay(1_000L)
+                showSetupRequired = true
             }
+            while (true) {
+                val success = runCatching {
+                    client.health(target)
+                    val manifest = client.manifest(target)
+                    connectingManifest = manifest
+                    savedConnections = PortalConnectionStore.upsert(manifest, target)
+
+                    val session = PortalSession(
+                        connection = target,
+                        manifest = manifest,
+                        client = client,
+                        onConnectionFailing = { connectionFailing = true }
+                    )
+                    activeSession = session
+                    showOverlayConnectionDialog = false
+                    connectionFailing = false
+                    navigateToApp(manifest.appId)
+                    setupTimer.cancel()
+                }.isSuccess
+                if (success) break
+                delay(1_000L)
+                showSetupRequired = true
+            }
+            connecting = false
         }
 
         Box(
@@ -169,29 +145,51 @@ internal fun PortalApp() {
                     .fillMaxSize()
                     .background(PortalColors.background),
             ) {
-                if (!mobileView && manifest != null) {
-                    TopBar(
-                        manifest = manifest,
-                        savedConnections = savedConnections,
-                        onSelectConnection = { saved ->
-                            connection = saved.toPortalConnection()
-                        },
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = manifest != null,
-                        enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
-                            animationSpec = tween(260),
-                            initialOffsetY = { it / 36 },
-                        ),
-                        exit = fadeOut(animationSpec = tween(160)),
-                        modifier = Modifier.fillMaxSize(),
+                if (activeSession == null) {
+                    if (connectionCandidate == null) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Paste a URL copied from the app into the browser to get started.",
+                                color = PortalColors.muted,
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(32.dp)
+                            )
+                        }
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            WelcomeConnectionPanel(
+                                connection = connectionCandidate!!,
+                                appIconPngBase64 = connectingManifest?.appIconPngBase64,
+                                animateAppIconReveal = true,
+                                showSetupRequired = showSetupRequired,
+                                isEmulator = launchParams.isEmulator,
+                            )
+                        }
+                    }
+                } else {
+                    val session = activeSession!!
+                    val currentAppId = session.appId
+                    var persistedLayout by remember(currentAppId) { mutableStateOf(DockLayoutPersistence.load(currentAppId)) }
+                    val filesPanelState = remember(currentAppId) { FilesPanelState(currentAppId) }
+
+                    if (!mobileView) {
+                        TopBar(
+                            manifest = session.manifest,
+                            savedConnections = savedConnections,
+                            onSelectConnection = { saved ->
+                                connectionCandidate = saved.toPortalConnection()
+                            },
+                            connectionFailing = connectionFailing,
+                            onFixConnection = { showOverlayConnectionDialog = true }
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
                     ) {
                         key(layoutRevision) {
                             val dockTabs = listOf(NetworkTab, LogsTab, ScreenMirrorTab, FilesTab) + dynamicTabs
@@ -216,35 +214,25 @@ internal fun PortalApp() {
                                     renderer<FilesTab> { _, _ ->
                                         FilesPanel(
                                             state = filesPanelState,
-                                            connection = connection,
-                                            client = client,
-                                            enabled = manifest?.plugins?.any { it.id == "portal:files" } == true,
-                                            sharedPrefsEnabled = manifest?.plugins?.any { it.id == SharedPrefsPluginId } == true,
+                                            api = session,
                                             onOpenSharedPrefsTab = ::openSharedPrefsTab,
                                         )
                                     }
                                     renderer<NetworkTab> { _, _ ->
                                         NetworkPanel(
-                                            connection = connection,
-                                            client = client,
-                                            enabled = manifest?.plugins?.any { it.id == NetworkPluginId } == true,
-                                            appId = manifest?.appId,
+                                            api = session,
                                             onOpenResponseTab = ::openResponseTab,
                                             mobileView = mobileView,
                                         )
                                     }
                                     renderer<LogsTab> { _, _ ->
                                         LogsPanel(
-                                            connection = connection,
-                                            client = client,
-                                            enabled = manifest?.plugins?.any { it.id == LogsPluginId } == true,
+                                            api = session,
                                         )
                                     }
                                     renderer<ScreenMirrorTab> { _, _ ->
                                         ScreenMirrorPanel(
-                                            connection = connection,
-                                            client = client,
-                                            enabled = manifest?.plugins?.any { it.id == ScreenMirrorPluginId } == true,
+                                            api = session,
                                         )
                                     }
                                     renderer<NetworkResponseTab> { tab, _ ->
@@ -253,48 +241,40 @@ internal fun PortalApp() {
                                     renderer<SharedPrefsTab> { tab, _ ->
                                         SharedPrefsPanel(
                                             tab = tab,
-                                            connection = connection,
-                                            client = client,
-                                            enabled = manifest?.plugins?.any { it.id == SharedPrefsPluginId } == true,
+                                            api = session,
                                         )
                                     }
                                     renderer<UnsupportedPluginTab> { tab, _ ->
                                         UnsupportedPluginPanel(tab.pluginId)
                                     }
                                 },
-                                modifier = Modifier
-                                    .fillMaxSize(),
+                                modifier = Modifier.fillMaxSize(),
                                 tabIcon = { tab, selected -> PortalTabIcon(tab, selected) },
                             )
                         }
-                    }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = manifest == null && !mobileView,
-                        enter = fadeIn(animationSpec = tween(260)) + slideInVertically(
-                            animationSpec = tween(320),
-                            initialOffsetY = { it / 18 },
-                        ),
-                        exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(
-                            animationSpec = tween(220),
-                            targetOffsetY = { -it / 28 },
-                        ),
-                    ) {
-                        val persistedAppIconPngBase64 = appId
-                            ?.let { savedConnections.matchingPackage(it)?.appIconPngBase64 }
-                        WelcomeConnectionPanel(
-                            connection = connection,
-                            appIconPngBase64 = connectingManifest?.appIconPngBase64 ?: persistedAppIconPngBase64,
-                            animateAppIconReveal = connectingManifest?.appIconPngBase64 != null &&
-                                persistedAppIconPngBase64 == null,
-                            showSetupRequired = showSetupRequired,
-                            isEmulator = launchParams.isEmulator,
-                        )
-                    }
-                    if (manifest == null && mobileView) {
-                        MobileConnectionState(
-                            connecting = connecting,
-                            error = error,
-                        )
+
+                        if (showOverlayConnectionDialog) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.6f))
+                                    .zIndex(100f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                WelcomeConnectionPanel(
+                                    connection = session.connection,
+                                    appIconPngBase64 = session.manifest.appIconPngBase64,
+                                    animateAppIconReveal = false,
+                                    showSetupRequired = true,
+                                    isEmulator = launchParams.isEmulator
+                                )
+                                PortalVectorIconButton(
+                                    icon = PortalTabIcons.Close,
+                                    onClick = { showOverlayConnectionDialog = false },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

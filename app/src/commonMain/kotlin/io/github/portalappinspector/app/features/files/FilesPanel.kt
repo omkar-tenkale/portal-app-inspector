@@ -23,9 +23,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
-import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.networkJson
+import io.github.portalappinspector.app.data.PortalApi
+import io.github.portalappinspector.app.features.network.networkJson
+import io.github.portalappinspector.app.features.sharedprefs.SharedPrefsPluginId
 import io.github.portalappinspector.app.ui.EmptyRow
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.RowDivider
@@ -48,14 +48,13 @@ import kotlinx.serialization.json.put
 @Composable
 internal fun FilesPanel(
     state: FilesPanelState,
-    connection: PortalConnection,
-    client: PortalSourceClient,
-    enabled: Boolean,
-    sharedPrefsEnabled: Boolean,
+    api: PortalApi,
     onOpenSharedPrefsTab: (PortalFileItem) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toastHost = LocalToastHost.current
+    val enabled = api.hasPlugin("portal:files")
+    val sharedPrefsEnabled = api.hasPlugin(SharedPrefsPluginId)
 
     fun load(path: String?) {
         state.loading = true
@@ -64,14 +63,12 @@ internal fun FilesPanel(
         scope.launch {
             runCatching {
                 val payload = if (path == null) {
-                    client.request(
-                        connection = connection,
+                    api.request(
                         pluginId = "portal:files",
                         payload = buildJsonObject { put("type", "listRoots") },
                     )
                 } else {
-                    client.request(
-                        connection = connection,
+                    api.request(
                         pluginId = "portal:files",
                         payload = buildJsonObject {
                             put("type", "listChildren")
@@ -134,8 +131,7 @@ internal fun FilesPanel(
         }
         scope.launch {
             runCatching {
-                client.request(
-                    connection = connection,
+                api.request(
                     pluginId = "portal:files",
                     payload = buildJsonObject {
                         put("type", "readFile")
@@ -170,8 +166,7 @@ internal fun FilesPanel(
         state.error = null
         scope.launch {
             runCatching {
-                client.request(
-                    connection = connection,
+                api.request(
                     pluginId = "portal:files",
                     payload = buildJsonObject {
                         put("type", "readFile")
@@ -202,8 +197,7 @@ internal fun FilesPanel(
         if (state.loading) return
         scope.launch {
             runCatching {
-                client.request(
-                    connection = connection,
+                api.request(
                     pluginId = "portal:files",
                     payload = buildJsonObject {
                         put("type", "deletePath")
@@ -225,9 +219,8 @@ internal fun FilesPanel(
         }
     }
 
-    LaunchedEffect(enabled, connection) {
-        if (enabled && connection.isValid && state.loadedConnection != connection) {
-            state.loadedConnection = connection
+    LaunchedEffect(enabled, api) {
+        if (enabled) {
             load(null)
         }
     }

@@ -54,6 +54,8 @@ import androidx.compose.ui.zIndex
 import io.github.portalappinspector.PortalManifest
 import io.github.portalappinspector.app.data.SavedPortalConnection
 import io.github.portalappinspector.app.ui.PortalColors
+import io.github.portalappinspector.app.ui.PortalButton
+import io.github.portalappinspector.app.ui.PortalButtonKind
 import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import io.github.portalappinspector.app.util.toImageBitmapOrNull
@@ -63,6 +65,8 @@ internal fun TopBar(
     manifest: PortalManifest?,
     savedConnections: List<SavedPortalConnection>,
     onSelectConnection: (SavedPortalConnection) -> Unit,
+    connectionFailing: Boolean = false,
+    onFixConnection: () -> Unit = {}
 ) {
     var infoPopupExpanded by remember { mutableStateOf(false) }
     var appSessionExpanded by remember { mutableStateOf(false) }
@@ -95,6 +99,16 @@ internal fun TopBar(
                 },
             )
             TopBarVerticalDivider()
+            if (connectionFailing) {
+                Spacer(Modifier.width(8.dp))
+                PortalButton(
+                    text = "Connection issues (Fix)",
+                    onClick = onFixConnection,
+                    kind = PortalButtonKind.Secondary
+                )
+                Spacer(Modifier.width(8.dp))
+                TopBarVerticalDivider()
+            }
             Spacer(Modifier.weight(1f))
         }
         if (infoPopupExpanded) {
@@ -551,63 +565,5 @@ private fun TopBarPreview() {
             savedConnections = emptyList(),
             onSelectConnection = {}
         )
-    }
-}
-
-@Preview
-@Composable
-private fun AppInfoPopupPreview() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .background(PortalColors.background)
-    ) {
-        AppInfoPopup()
-    }
-}
-
-@Preview
-@Composable
-private fun AppSessionDropdownPreview() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .background(PortalColors.background)
-    ) {
-        AppSessionDropdown(
-            savedConnections = emptyList(),
-            currentPackageName = null,
-            onSelectConnection = {}
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun PortalMarkPreview() {
-    Box(
-        modifier = Modifier
-            .size(100.dp)
-            .background(PortalColors.background)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        PortalMark(modifier = Modifier.fillMaxSize())
-    }
-}
-
-@Preview
-@Composable
-private fun AppIconPlaceholderPreview() {
-    Box(
-        modifier = Modifier
-            .size(100.dp)
-            .background(PortalColors.background)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        AppIconPlaceholder(modifier = Modifier.fillMaxSize())
     }
 }

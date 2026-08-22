@@ -35,7 +35,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.portalappinspector.app.data.toSimpleMockMatchers
 import io.github.portalappinspector.app.ui.JsonText
 import io.github.portalappinspector.app.ui.JsonTextMode
 import io.github.portalappinspector.app.ui.PortalCheckbox

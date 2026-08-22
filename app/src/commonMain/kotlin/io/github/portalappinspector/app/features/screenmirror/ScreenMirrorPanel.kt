@@ -36,9 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.ScreenMirrorPluginId
+import io.github.portalappinspector.app.data.PortalApi
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.PulsatingDots
 import io.github.portalappinspector.app.ui.RowDivider
@@ -46,23 +44,23 @@ import io.github.portalappinspector.app.ui.StatusCard
 import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.util.formatSize
 import io.github.portalappinspector.app.util.toImageBitmapOrNull
-import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 
+internal const val ScreenMirrorPluginId = "portal-screen-mirror"
+
 @Composable
 internal fun ScreenMirrorPanel(
-    connection: PortalConnection,
-    client: PortalSourceClient,
-    enabled: Boolean,
+    api: PortalApi,
 ) {
-    var frame by remember(connection) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }
-    var frameBytes by remember(connection) { mutableStateOf<ByteArray?>(null) }
-    var error by remember(connection) { mutableStateOf<String?>(null) }
-    var inputConnected by remember(connection) { mutableStateOf(false) }
+    val enabled = api.hasPlugin(ScreenMirrorPluginId)
+    var frame by remember(api) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }
+    var frameBytes by remember(api) { mutableStateOf<ByteArray?>(null) }
+    var error by remember(api) { mutableStateOf<String?>(null) }
+    var inputConnected by remember(api) { mutableStateOf(false) }
     
     var pointerPosition by remember { mutableStateOf<Offset?>(null) }
     var isPointerPressed by remember { mutableStateOf(false) }
@@ -70,10 +68,10 @@ internal fun ScreenMirrorPanel(
     val fps = if (pointerPosition != null || isPointerPressed) 30 else 2
     
     val bitmap = remember(frameBytes) { frameBytes?.toImageBitmapOrNull() }
-    val touchEvents = remember(connection) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
+    val touchEvents = remember(api) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
 
     fun queueTouch(action: String, position: Offset, size: IntSize) {
-        if (!enabled || !connection.isValid || !inputConnected || size.width <= 0 || size.height <= 0) return
+        if (!enabled || !inputConnected || size.width <= 0 || size.height <= 0) return
         val normalized = position.normalizedInFittedFrame(
             containerSize = size,
             frame = frame,
@@ -88,13 +86,13 @@ internal fun ScreenMirrorPanel(
         )
     }
 
-    LaunchedEffect(enabled, connection, fps) {
+    LaunchedEffect(enabled, api, fps) {
         error = null
-        if (!enabled || !connection.isValid) return@LaunchedEffect
+        if (!enabled) return@LaunchedEffect
 
         while (true) {
             runCatching {
-                client.streamClient.webSocket(screenMirrorSocketUrl(connection, "frames", fps)) {
+                api.webSocket(ScreenMirrorPluginId, "frames", fps.let { "scale=0.5&maxFps=$it" }) {
                     var pendingFrame: ScreenMirrorFrameMetadata? = null
                     for (message in incoming) {
                         when (message) {
@@ -121,12 +119,12 @@ internal fun ScreenMirrorPanel(
         }
     }
 
-    LaunchedEffect(enabled, connection) {
-        if (!enabled || !connection.isValid) return@LaunchedEffect
+    LaunchedEffect(enabled, api) {
+        if (!enabled) return@LaunchedEffect
 
         while (true) {
             runCatching {
-                client.streamClient.webSocket(screenMirrorSocketUrl(connection, "input", fps = null)) {
+                api.webSocket(ScreenMirrorPluginId, "input") {
                     inputConnected = true
                     try {
                         for (touch in touchEvents) {
@@ -169,7 +167,7 @@ internal fun ScreenMirrorPanel(
                 .background(Color.Black)
                 .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp))
                 .pointerHoverIcon(if (pointerPosition != null) PointerIcon.Crosshair else PointerIcon.Default)
-                .pointerInput(enabled, connection, bitmap != null) {
+                .pointerInput(enabled, api, bitmap != null) {
                     if (!enabled || bitmap == null) return@pointerInput
                     var activePointerId: PointerId? = null
                     var lastPosition = Offset.Zero
@@ -330,17 +328,6 @@ private data class ScreenMirrorFrameMetadata(
     val height: Int,
     val sizeBytes: Long,
 )
-
-private fun screenMirrorSocketUrl(connection: PortalConnection, streamPath: String, fps: Int?): String {
-    val baseUrl = connection.baseUrl.trimEnd('/')
-    val wsBaseUrl = when {
-        baseUrl.startsWith("https://") -> "wss://${baseUrl.removePrefix("https://")}"
-        baseUrl.startsWith("http://") -> "ws://${baseUrl.removePrefix("http://")}"
-        else -> "ws://$baseUrl"
-    }
-    val query = fps?.let { "?scale=0.5&maxFps=$it" }.orEmpty()
-    return "$wsBaseUrl/portal/plugins/$ScreenMirrorPluginId/streams/$streamPath$query"
-}
 
 private fun parseScreenMirrorFrameMetadata(value: String): ScreenMirrorFrameMetadata? {
     val parts = value.split('|')

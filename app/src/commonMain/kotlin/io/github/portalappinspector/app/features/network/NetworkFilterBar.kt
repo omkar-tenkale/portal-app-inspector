@@ -41,10 +41,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.portalappinspector.app.data.MockConditionTypes
-import io.github.portalappinspector.app.data.NetworkFilterTypes
-import io.github.portalappinspector.app.data.conditionChipLabel
-import io.github.portalappinspector.app.data.matcherLabel
 import io.github.portalappinspector.app.ui.InlineConditionTextField
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.Text

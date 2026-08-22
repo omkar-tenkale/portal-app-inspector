@@ -1,19 +1,5 @@
-package io.github.portalappinspector.app.data
+package io.github.portalappinspector.app.features.network
 
-import io.github.portalappinspector.app.features.logs.PortalLogCallSite
-import io.github.portalappinspector.app.features.logs.PortalLogEntry
-import io.github.portalappinspector.app.features.logs.PortalLogRow
-import io.github.portalappinspector.app.features.network.NetworkFilterMode
-import io.github.portalappinspector.app.features.network.NetworkFilterRule
-import io.github.portalappinspector.app.features.network.NetworkGapType
-import io.github.portalappinspector.app.features.network.NetworkHighlightMatch
-import io.github.portalappinspector.app.features.network.PortalNetworkBodyResponse
-import io.github.portalappinspector.app.features.network.PortalNetworkCall
-import io.github.portalappinspector.app.features.network.PortalNetworkMock
-import io.github.portalappinspector.app.features.network.PortalNetworkMockExpectation
-import io.github.portalappinspector.app.features.network.PortalNetworkMockMatcher
-import io.github.portalappinspector.app.features.network.PortalNetworkMockResponse
-import io.github.portalappinspector.app.features.network.PortalNetworkRow
 import io.github.portalappinspector.app.util.nowEpochMillis
 import io.viascom.nanoid.NanoId
 import kotlinx.serialization.json.Json
@@ -194,8 +180,8 @@ private fun String.snippetAround(needle: String, context: Int = 14): String? {
     if (index < 0) return null
     val start = (index - context).coerceAtLeast(0)
     val end = (index + needle.length + context).coerceAtMost(length)
-    val prefix = if (start > 0) ".." else ""
-    val suffix = if (end < length) ".." else ""
+    val prefix = if (start > 0) "" else ""
+    val suffix = if (end < length) "" else ""
     return prefix + substring(start, end).replace('\n', ' ').replace('\r', ' ') + suffix
 }
 
@@ -252,58 +238,6 @@ internal fun String.logSourceLabel(): String =
         "systemPrint" -> "System print"
         else -> this
     }
-
-internal fun PortalLogEntry.logLine(): String {
-    val line = message.takeIf { it.isNotBlank() }
-        ?: throwable?.takeIf { it.isNotBlank() }
-        ?: "(empty)"
-    return line.lineSequence()
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-        .joinToString(" ")
-        .ifBlank { "(empty)" }
-}
-
-internal fun PortalLogCallSite.shortLabel(): String {
-    val file = fileName?.takeIf { it.isNotBlank() }
-    return when {
-        file != null && lineNumber != null -> "$file:$lineNumber"
-        file != null -> file
-        methodName.isNotBlank() -> "${className.substringAfterLast('.')}.$methodName"
-        else -> className.substringAfterLast('.')
-    }
-}
-
-internal fun PortalLogCallSite.detailLabel(): String {
-    val location = shortLabel()
-    val method = methodName.takeIf { it.isNotBlank() } ?: return location
-    val owner = className.substringAfterLast('.').takeIf { it.isNotBlank() }
-    return if (owner == null) {
-        "$location in $method"
-    } else {
-        "$location in $owner.$method"
-    }
-}
-
-internal fun List<PortalLogEntry>.toLogRows(gapThresholdMillis: Long): List<PortalLogRow> {
-    if (isEmpty()) return emptyList()
-    val rows = mutableListOf<PortalLogRow>()
-    forEachIndexed { index, entry ->
-        if (index > 0) {
-            val previous = this[index - 1]
-            val gap = previous.timestampEpochMillis - entry.timestampEpochMillis
-            if (gap >= gapThresholdMillis) {
-                rows += PortalLogRow.Gap(
-                    beforeId = previous.id,
-                    afterId = entry.id,
-                    durationMillis = gap,
-                )
-            }
-        }
-        rows += PortalLogRow.Entry(entry)
-    }
-    return rows
-}
 
 internal fun List<PortalNetworkCall>.toNetworkRows(nowEpochMillis: Long): List<PortalNetworkRow> {
     if (isEmpty()) return emptyList()

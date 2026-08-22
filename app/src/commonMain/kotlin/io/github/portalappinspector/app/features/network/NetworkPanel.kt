@@ -1,6 +1,5 @@
 package io.github.portalappinspector.app.features.network
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,17 +22,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import io.github.portalappinspector.app.data.NetworkPluginId
-import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalSourceClient
+import io.github.portalappinspector.app.data.PortalApi
 import io.github.portalappinspector.app.data.StorageJson
-import io.github.portalappinspector.app.data.createMockFromCall
-import io.github.portalappinspector.app.data.firstHighlightFor
-import io.github.portalappinspector.app.data.matchesNetworkCall
-import io.github.portalappinspector.app.data.networkJson
-import io.github.portalappinspector.app.data.toNetworkRows
 import io.github.portalappinspector.app.ui.NetworkGapRow
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.StatusCard
@@ -50,16 +41,17 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 
+internal const val NetworkPluginId = "portal-network"
+
 @Composable
 internal fun NetworkPanel(
-    connection: PortalConnection,
-    client: PortalSourceClient,
-    enabled: Boolean,
-    appId: String,
+    api: PortalApi,
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
     mobileView: Boolean = false,
 ) {
-    val state = remember(connection, appId) { NetworkPanelState(appId, connection) }
+    val enabled = api.hasPlugin(NetworkPluginId)
+    val appId = api.appId
+    val state = remember(api, appId) { NetworkPanelState(appId) }
     val networkListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
     val use12HourClock = remember { jsUses12HourClock() }
@@ -72,10 +64,9 @@ internal fun NetworkPanel(
     }
 
     suspend fun syncMocks(nextMocks: List<PortalNetworkMock> = state.mocks) {
-        if (!enabled || !connection.isValid) return
+        if (!enabled) return
         runCatching {
-            client.request(
-                connection = connection,
+            api.request(
                 pluginId = NetworkPluginId,
                 payload = buildJsonObject {
                     put("type", "setupMocks")
@@ -100,8 +91,7 @@ internal fun NetworkPanel(
     suspend fun loadNewCalls() {
         state.loading = true
         runCatching {
-            client.request(
-                connection = connection,
+            api.request(
                 pluginId = NetworkPluginId,
                 payload = buildJsonObject {
                     put("type", "listAfter")
@@ -122,10 +112,10 @@ internal fun NetworkPanel(
         state.loading = false
     }
 
-    LaunchedEffect(enabled, connection, appId) {
+    LaunchedEffect(enabled, api, appId) {
         state.calls.clear()
         state.lastTimestamp = 0L
-        if (!enabled || !connection.isValid) return@LaunchedEffect
+        if (!enabled) return@LaunchedEffect
 
         syncMocks()
         while (true) {
@@ -378,19 +368,5 @@ internal fun NetworkPanel(
                 },
             )
         }
-    }
-}
-
-@Preview
-@Composable
-private fun NetworkPanelPreview() {
-    Box(Modifier.background(PortalColors.background).fillMaxSize()) {
-        NetworkPanel(
-            connection = PortalConnection("localhost", "4896"),
-            client = PortalSourceClient(),
-            enabled = true,
-            appId = "com.example.app",
-            onOpenResponseTab = {}
-        )
     }
 }

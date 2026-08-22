@@ -1,6 +1,5 @@
 package io.github.portalappinspector.app.features.sharedprefs
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,14 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.SharedPrefsPluginId
-import io.github.portalappinspector.app.data.networkJson
-import io.github.portalappinspector.app.features.files.PortalFileItem
+import io.github.portalappinspector.app.data.PortalApi
+import io.github.portalappinspector.app.features.network.networkJson
 import io.github.portalappinspector.app.ui.EmptyRow
 import io.github.portalappinspector.app.ui.PortalButton
 import io.github.portalappinspector.app.ui.PortalColors
@@ -51,13 +46,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+internal const val SharedPrefsPluginId = "portal-shared-prefs"
+
 @Composable
 internal fun SharedPrefsPanel(
     tab: SharedPrefsTab,
-    connection: PortalConnection,
-    client: PortalSourceClient,
-    enabled: Boolean,
+    api: PortalApi,
 ) {
+    val enabled = api.hasPlugin(SharedPrefsPluginId)
     var loading by remember(tab.file.path) { mutableStateOf(false) }
     var error by remember(tab.file.path) { mutableStateOf<String?>(null) }
     var prefs by remember(tab.file.path) { mutableStateOf<List<PortalSharedPrefItem>>(emptyList()) }
@@ -69,13 +65,12 @@ internal fun SharedPrefsPanel(
     val toastHost = LocalToastHost.current
 
     fun loadPrefs() {
-        if (!enabled || !connection.isValid || loading) return
+        if (!enabled || loading) return
         loading = true
         error = null
         scope.launch {
             runCatching {
-                client.request(
-                    connection = connection,
+                api.request(
                     pluginId = SharedPrefsPluginId,
                     payload = buildJsonObject {
                         put("type", "load")
@@ -100,7 +95,7 @@ internal fun SharedPrefsPanel(
     }
 
     fun savePref(pref: PortalSharedPrefItem, nextValue: String) {
-        if (!enabled || !connection.isValid || pref.key in savingKeys) return
+        if (!enabled || pref.key in savingKeys) return
         if (!pref.isValidValue(nextValue)) {
             toastHost.show("Invalid ${pref.valueType} value", ToastKind.Warning, durationMillis = 1_800L)
             return
@@ -108,8 +103,7 @@ internal fun SharedPrefsPanel(
         savingKeys += pref.key
         scope.launch {
             runCatching {
-                client.request(
-                    connection = connection,
+                api.request(
                     pluginId = SharedPrefsPluginId,
                     payload = buildJsonObject {
                         put("type", "update")
@@ -142,8 +136,8 @@ internal fun SharedPrefsPanel(
         }
     }
 
-    LaunchedEffect(enabled, connection, tab.file.path) {
-        if (enabled && connection.isValid) {
+    LaunchedEffect(enabled, api, tab.file.path) {
+        if (enabled) {
             loadPrefs()
         }
     }
@@ -256,31 +250,5 @@ internal fun SharedPrefsPanelContent(
                 )
             }
         }
-    }
-}
-
-@Preview
-@Composable
-private fun SharedPrefsPanelContentPreview() {
-    Box(Modifier.background(PortalColors.background)) {
-        SharedPrefsPanelContent(
-            tab = SharedPrefsTab(PortalFileItem("app_prefs.xml", "shared-prefs:/app_prefs.xml", null, false, 1024)),
-            enabled = true,
-            loading = false,
-            error = null,
-            prefs = listOf(
-                PortalSharedPrefItem("is_logged_in", "boolean", "true"),
-                PortalSharedPrefItem("username", "string", "admin"),
-                PortalSharedPrefItem("launch_count", "int", "42")
-            ),
-            editedValues = mapOf("username" to "admin2"),
-            expandedKey = "username",
-            savingKeys = emptyList(),
-            updatedKeys = emptyList(),
-            onRefresh = {},
-            onToggle = {},
-            onValueChange = { _, _ -> },
-            onDebouncedSave = { _, _ -> }
-        )
     }
 }

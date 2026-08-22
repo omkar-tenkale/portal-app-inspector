@@ -4,12 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import io.github.portalappinspector.app.data.NetworkFilterTypes
-import io.github.portalappinspector.app.data.PortalConnection
 
 internal class NetworkPanelState(
     appId: String,
-    connection: PortalConnection,
 ) {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)

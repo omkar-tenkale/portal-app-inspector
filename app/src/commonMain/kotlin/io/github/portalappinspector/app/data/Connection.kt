@@ -117,11 +117,6 @@ internal object PortalConnectionStore {
     }
 }
 
-internal fun List<SavedPortalConnection>.matchingPackage(appId: String): SavedPortalConnection? =
-    firstOrNull {
-        it.appId == appId
-    }
-
 internal fun navigateToApp(appId: String) {
     platformNavigateToApp(appId)
 }

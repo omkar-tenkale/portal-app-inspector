@@ -1,6 +1,6 @@
 package io.github.portalappinspector.app.features.logs
 
-import io.github.portalappinspector.app.data.toJsonArray
+import io.github.portalappinspector.app.features.network.toJsonArray
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject

@@ -1,8 +1,6 @@
 package io.github.portalappinspector.app.features.logs
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,15 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import io.github.portalappinspector.app.data.FilteredLogGapThresholdMillis
-import io.github.portalappinspector.app.data.LogGapThresholdMillis
-import io.github.portalappinspector.app.data.LogsPluginId
-import io.github.portalappinspector.app.data.PortalConnection
-import io.github.portalappinspector.app.data.PortalSourceClient
-import io.github.portalappinspector.app.data.networkJson
-import io.github.portalappinspector.app.data.toLogRows
+import io.github.portalappinspector.app.data.PortalApi
+import io.github.portalappinspector.app.features.network.networkJson
 import io.github.portalappinspector.app.features.network.NetworkFilterMode
 import io.github.portalappinspector.app.ui.LogGapRow
 import io.github.portalappinspector.app.ui.PortalColors
@@ -37,12 +29,17 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 
+internal const val LogsPluginId = "portal-logs"
+
+internal const val LogGapThresholdMillis = 10_000L
+internal const val FilteredLogGapThresholdMillis = 1_000L
+
+
 @Composable
 internal fun LogsPanel(
-    connection: PortalConnection,
-    client: PortalSourceClient,
-    enabled: Boolean,
+    api: PortalApi,
 ) {
+    val enabled = api.hasPlugin(LogsPluginId)
     val state = remember { LogsPanelState() }
     val logListState = rememberLazyListState()
     val timezoneOffsetMinutes = remember { jsTimezoneOffsetMinutes().toLong() }
@@ -76,8 +73,7 @@ internal fun LogsPanel(
     suspend fun loadNewLogs() {
         state.loading = true
         runCatching {
-            client.request(
-                connection = connection,
+            api.request(
                 pluginId = LogsPluginId,
                 payload = buildJsonObject {
                     put("type", "listAfter")
@@ -99,10 +95,10 @@ internal fun LogsPanel(
         state.loading = false
     }
 
-    LaunchedEffect(enabled, connection, filterKey) {
+    LaunchedEffect(enabled, api, filterKey) {
         state.logs.clear()
         state.lastTimestamp = 0L
-        if (!enabled || !connection.isValid) return@LaunchedEffect
+        if (!enabled) return@LaunchedEffect
 
         while (true) {
             loadNewLogs()
@@ -177,17 +173,5 @@ internal fun LogsPanel(
                 }
             }
         }
-    }
-}
-
-@Preview
-@Composable
-private fun LogsPanelPreview() {
-    Box(Modifier.background(PortalColors.background).fillMaxSize()) {
-        LogsPanel(
-            connection = PortalConnection("127.0.0.1", "8080"),
-            client = PortalSourceClient(),
-            enabled = true
-        )
     }
 }
