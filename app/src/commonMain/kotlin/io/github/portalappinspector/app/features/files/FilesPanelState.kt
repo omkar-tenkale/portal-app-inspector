@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.portalappinspector.app.data.PortalConnection
 
-internal class FilesPanelState {
+internal class FilesPanelState(val appId: String) {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var loadedConnection by mutableStateOf<PortalConnection?>(null)
@@ -14,7 +14,7 @@ internal class FilesPanelState {
     var fileFilter by mutableStateOf("")
     var fileListVersion by mutableStateOf(0)
     var viewedFile by mutableStateOf<PortalViewedFile?>(null)
-    var pinnedFiles by mutableStateOf(PortalFilePinStore.load())
+    var pinnedFiles by mutableStateOf(PortalFilePinStore.load(appId))
     val fileItems = mutableStateListOf<PortalFileItem>()
     val backStack = mutableStateListOf<String?>()
 }

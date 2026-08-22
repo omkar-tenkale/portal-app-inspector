@@ -55,7 +55,7 @@ internal fun NetworkPanel(
     connection: PortalConnection,
     client: PortalSourceClient,
     enabled: Boolean,
-    appId: String?,
+    appId: String,
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
     mobileView: Boolean = false,
 ) {
@@ -90,7 +90,7 @@ internal fun NetworkPanel(
     }
 
     fun updateMocks(nextMocks: List<PortalNetworkMock>) {
-        val saved = PortalNetworkMockStore.save(state.mockPackageKey, nextMocks)
+        val saved = PortalNetworkMockStore.save(appId, nextMocks)
         state.mocks = saved
         mockScope.launch {
             syncMocks(saved)
@@ -122,7 +122,7 @@ internal fun NetworkPanel(
         state.loading = false
     }
 
-    LaunchedEffect(enabled, connection, state.mockPackageKey) {
+    LaunchedEffect(enabled, connection, appId) {
         state.calls.clear()
         state.lastTimestamp = 0L
         if (!enabled || !connection.isValid) return@LaunchedEffect

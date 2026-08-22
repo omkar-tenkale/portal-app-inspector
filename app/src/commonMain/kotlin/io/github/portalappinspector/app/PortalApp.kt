@@ -73,7 +73,6 @@ internal fun PortalApp() {
         val launchParams = remember { PortalLaunchParams.fromUrl() }
         val mobileView = launchParams.mobileView
         val appId = launchParams.appId
-        val platform = launchParams.platform
         val initialConnection = remember(launchParams) {
             launchParams.connection
                 ?: PortalConnectionStore.latest()?.toPortalConnection()
@@ -87,12 +86,12 @@ internal fun PortalApp() {
         var error by remember { mutableStateOf<String?>(null) }
         var connecting by remember { mutableStateOf(false) }
         var showSetupRequired by remember { mutableStateOf(false) }
+        var currentAppId by remember { mutableStateOf(appId) }
         var layoutRevision by remember { mutableStateOf(0) }
         var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
-        val filesPanelState = remember { FilesPanelState() }
+        val filesPanelState = remember(currentAppId) { FilesPanelState(currentAppId ?: "default") }
         val dynamicTabs = remember { mutableStateListOf<PortalTab>() }
         var activeTabRequest by remember { mutableStateOf<PortalTab?>(null) }
-        var currentAppId by remember { mutableStateOf(appId) }
         var persistedLayout by remember(currentAppId) { mutableStateOf(DockLayoutPersistence.load(currentAppId)) }
 
         fun openResponseTab(call: PortalNetworkCall) {
@@ -158,13 +157,6 @@ internal fun PortalApp() {
                 manifest = null
                 connectingManifest = null
             }
-        }
-
-        LaunchedEffect(Unit) {
-            delay(2_000L)
-            toastHost.show("Welcome to Portal")
-            delay(2_000L)
-            toastHost.show("Another toast !")
         }
 
         Box(

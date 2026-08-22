@@ -118,7 +118,7 @@ internal fun FilesPanel(
     }
 
     fun togglePinned(item: PortalFileItem) {
-        state.pinnedFiles = PortalFilePinStore.toggle(item)
+        state.pinnedFiles = PortalFilePinStore.toggle(state.appId, item)
         toastHost.show(
             message = if (state.pinnedFiles.any { it.path == item.path }) "Pinned path" else "Unpinned path",
             kind = ToastKind.Info,
@@ -213,7 +213,7 @@ internal fun FilesPanel(
             }.onSuccess { payload ->
                 val deleted = payload["deleted"]?.jsonPrimitive?.booleanOrNull == true
                 if (deleted) {
-                    state.pinnedFiles = PortalFilePinStore.remove(item.path)
+                    state.pinnedFiles = PortalFilePinStore.remove(state.appId, item.path)
                     toastHost.show("Deleted path", ToastKind.Info, durationMillis = 1_600L)
                     load(state.currentPath)
                 } else {

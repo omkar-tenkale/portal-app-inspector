@@ -22,15 +22,13 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 internal object DockLayoutPersistence {
-    private const val StorageKeyPrefix = "portal.app.inspector.dock-layout."
-
-    fun load(appId: String?): DockNode<PortalTab>? =
+        fun load(appId: String): DockNode<PortalTab>? =
         runCatching {
             val raw = platformLoadFromStorage(storageKey(appId)) ?: return null
             StorageJson.decodeFromString<PortalDockNodeSnapshot?>(raw)?.toDockNode()
         }.getOrNull()
 
-    fun save(appId: String?, layout: DockNode<PortalTab>?) {
+    fun save(appId: String, layout: DockNode<PortalTab>?) {
         runCatching {
             platformSaveToStorage(storageKey(appId), StorageJson.encodeToString(layout.toSnapshot()))
         }
@@ -310,6 +308,6 @@ internal object DockLayoutPersistence {
             )
     }
 
-    private fun storageKey(appId: String?): String =
-        StorageKeyPrefix + (appId?.ifBlank { null } ?: "default")
+    private fun storageKey(appId: String): String =
+        "portal-app-inspector/apps/$appId/dock-layout"
 }

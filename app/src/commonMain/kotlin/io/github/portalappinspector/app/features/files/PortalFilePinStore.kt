@@ -7,16 +7,16 @@ import io.github.portalappinspector.app.util.platformSaveToStorage
 
 internal object PortalFilePinStore {
 
-    internal const val StorageKey = "portal.app.inspector.plugin-data.portal-files.pinned-paths"
+    private fun storageKey(appId: String) = "portal-app-inspector/apps/$appId/plugin-data/portal-files/pinned-paths"
 
-    fun load(): List<PortalPinnedFileItem> =
+    fun load(appId: String): List<PortalPinnedFileItem> =
         runCatching {
-            val raw = platformLoadFromStorage(StorageKey) ?: return emptyList()
+            val raw = platformLoadFromStorage(storageKey(appId)) ?: return emptyList()
             StorageJson.decodeFromString<List<PortalPinnedFileItem>>(raw)
         }.getOrDefault(emptyList())
 
-    fun toggle(item: PortalFileItem): List<PortalPinnedFileItem> {
-        val existing = load()
+    fun toggle(appId: String, item: PortalFileItem): List<PortalPinnedFileItem> {
+        val existing = load(appId)
         val updated = if (existing.any { it.path == item.path }) {
             existing.filterNot { it.path == item.path }
         } else {
@@ -31,16 +31,16 @@ internal object PortalFilePinStore {
                 ),
             ) + existing
         }
-        return save(updated)
+        return save(appId, updated)
     }
 
-    fun remove(path: String): List<PortalPinnedFileItem> =
-        save(load().filterNot { it.path == path || it.path.startsWith("$path/") })
+    fun remove(appId: String, path: String): List<PortalPinnedFileItem> =
+        save(appId, load(appId).filterNot { it.path == path || it.path.startsWith("$path/") })
 
-    internal fun save(items: List<PortalPinnedFileItem>): List<PortalPinnedFileItem> {
+    internal fun save(appId: String, items: List<PortalPinnedFileItem>): List<PortalPinnedFileItem> {
         val cleaned = items.distinctBy { it.path }.sortedByDescending { it.pinnedAtEpochMillis }
         runCatching {
-            platformSaveToStorage(StorageKey, StorageJson.encodeToString(cleaned))
+            platformSaveToStorage(storageKey(appId), StorageJson.encodeToString(cleaned))
         }
         return cleaned
     }

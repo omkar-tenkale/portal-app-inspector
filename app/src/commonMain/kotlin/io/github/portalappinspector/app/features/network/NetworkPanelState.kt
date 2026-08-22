@@ -8,7 +8,7 @@ import io.github.portalappinspector.app.data.NetworkFilterTypes
 import io.github.portalappinspector.app.data.PortalConnection
 
 internal class NetworkPanelState(
-    appId: String?,
+    appId: String,
     connection: PortalConnection,
 ) {
     var loading by mutableStateOf(false)
@@ -24,6 +24,5 @@ internal class NetworkPanelState(
     var filters by mutableStateOf(emptyList<NetworkFilterRule>())
     val calls = mutableStateListOf<PortalNetworkCall>()
     
-    val mockPackageKey = appId ?: connection.baseUrl
-    var mocks by mutableStateOf(PortalNetworkMockStore.load(mockPackageKey))
+    var mocks by mutableStateOf(PortalNetworkMockStore.load(appId))
 }

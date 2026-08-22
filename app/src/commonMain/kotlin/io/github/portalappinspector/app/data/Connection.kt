@@ -84,7 +84,7 @@ internal data class SavedPortalConnection(
 }
 
 internal object PortalConnectionStore {
-    internal const val StorageKey = "portal.app.inspector.connections"
+    internal const val StorageKey = "portal-app-inspector/connections"
 
     fun load(): List<SavedPortalConnection> =
         runCatching {

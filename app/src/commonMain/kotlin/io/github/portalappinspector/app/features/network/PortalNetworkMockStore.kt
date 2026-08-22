@@ -5,23 +5,19 @@ import io.github.portalappinspector.app.util.platformLoadFromStorage
 import io.github.portalappinspector.app.util.platformSaveToStorage
 
 internal object PortalNetworkMockStore {
-    internal const val StorageKey = "portal.app.inspector.plugin-data.portal-network.network-mocks"
+    private fun storageKey(appId: String) = "portal-app-inspector/apps/$appId/plugin-data/portal-network/network-mocks"
 
     fun load(appId: String): List<PortalNetworkMock> =
-        loadAll()[appId].orEmpty().sortedByDescending { it.updatedAtEpochMillis }
+        runCatching {
+            val raw = platformLoadFromStorage(storageKey(appId)) ?: return emptyList()
+            StorageJson.decodeFromString<List<PortalNetworkMock>>(raw)
+        }.getOrDefault(emptyList()).sortedByDescending { it.updatedAtEpochMillis }
 
     fun save(appId: String, mocks: List<PortalNetworkMock>): List<PortalNetworkMock> {
         val cleaned = mocks.distinctBy { it.id }.sortedByDescending { it.updatedAtEpochMillis }
-        val updated = loadAll() + (appId to cleaned)
         runCatching {
-            platformSaveToStorage(StorageKey, StorageJson.encodeToString(updated))
+            platformSaveToStorage(storageKey(appId), StorageJson.encodeToString(cleaned))
         }
         return cleaned
     }
-
-    internal fun loadAll(): Map<String, List<PortalNetworkMock>> =
-        runCatching {
-            val raw = platformLoadFromStorage(StorageKey) ?: return emptyMap()
-            StorageJson.decodeFromString<Map<String, List<PortalNetworkMock>>>(raw)
-        }.getOrDefault(emptyMap())
 }

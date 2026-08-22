@@ -8,7 +8,7 @@ import androidx.compose.ui.tooling.preview.Preview
 @Composable
 internal fun PreviewFilesPanel_Standard() {
     val previewState = remember {
-        FilesPanelState().apply {
+        FilesPanelState("preview-app").apply {
             currentPath = "files:/internal/data"
             pinnedFiles = emptyList()
             fileItems.addAll(
@@ -57,7 +57,7 @@ internal fun PreviewFilesPanel_Standard() {
 @Composable
 internal fun PreviewFilesPanel_Loading() {
     val previewState = remember {
-        FilesPanelState().apply {
+        FilesPanelState("preview-app").apply {
             currentPath = "files:/internal/data"
             loading = true
             pinnedFiles = emptyList()
@@ -93,7 +93,7 @@ internal fun PreviewFilesPanel_Loading() {
 @Composable
 internal fun PreviewFilesPanel_Error() {
     val previewState = remember {
-        FilesPanelState().apply {
+        FilesPanelState("preview-app").apply {
             currentPath = "files:/internal/data"
             error = "Failed to list children. Permission denied or device offline."
             pinnedFiles = emptyList()
@@ -118,7 +118,7 @@ internal fun PreviewFilesPanel_Error() {
 @Composable
 internal fun PreviewFilesPanel_Empty() {
     val previewState = remember {
-        FilesPanelState().apply {
+        FilesPanelState("preview-app").apply {
             currentPath = "files:/internal/empty_dir"
             pinnedFiles = emptyList()
         }
@@ -142,7 +142,7 @@ internal fun PreviewFilesPanel_Empty() {
 @Composable
 internal fun PreviewFilesPanel_ViewingFile() {
     val previewState = remember {
-        FilesPanelState().apply {
+        FilesPanelState("preview-app").apply {
             currentPath = "files:/internal/data/config.json"
             backStack.add("files:/internal/data")
             pinnedFiles = emptyList()
