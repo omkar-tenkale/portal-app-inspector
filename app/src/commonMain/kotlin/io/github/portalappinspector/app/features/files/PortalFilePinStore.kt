@@ -4,7 +4,6 @@ import io.github.portalappinspector.app.data.StorageJson
 import io.github.portalappinspector.app.util.nowEpochMillis
 import io.github.portalappinspector.app.util.platformLoadFromStorage
 import io.github.portalappinspector.app.util.platformSaveToStorage
-import kotlinx.serialization.json.Json
 
 internal object PortalFilePinStore {
 

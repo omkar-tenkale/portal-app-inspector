@@ -7,8 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import io.github.portalappinspector.app.ui.Text
 import androidx.compose.ui.tooling.preview.Preview
+import io.github.portalappinspector.app.ui.Text
 
 @Composable
 fun Preview() {

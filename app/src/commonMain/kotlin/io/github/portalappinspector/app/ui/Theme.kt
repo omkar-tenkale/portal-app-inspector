@@ -1,7 +1,5 @@
 package io.github.portalappinspector.app.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import com.sebastianneubauer.jsontree.TreeColors
 

@@ -2,22 +2,22 @@ package io.github.portalappinspector.app.data
 
 import io.github.portalappinspector.PortalHealth
 import io.github.portalappinspector.PortalManifest
-import io.ktor.client.request.get
-import io.ktor.client.call.body
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.JsonObject
 import io.github.portalappinspector.PortalPluginRequest
 import io.github.portalappinspector.PortalRpcBatchRequest
 import io.github.portalappinspector.PortalRpcBatchResponse
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 internal class PortalSourceClient {
     internal val json = Json {

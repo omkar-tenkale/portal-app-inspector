@@ -5,9 +5,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 
 internal object PortalTabIcons {
     val Folder: ImageVector by lazy {

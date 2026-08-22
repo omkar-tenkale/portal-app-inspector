@@ -1,6 +1,5 @@
 package io.github.portalappinspector.app.data
 
-import io.github.portalappinspector.app.features.files.PortalFileItem
 import io.github.portalappinspector.app.features.logs.PortalLogCallSite
 import io.github.portalappinspector.app.features.logs.PortalLogEntry
 import io.github.portalappinspector.app.features.logs.PortalLogRow
@@ -15,23 +14,17 @@ import io.github.portalappinspector.app.features.network.PortalNetworkMockExpect
 import io.github.portalappinspector.app.features.network.PortalNetworkMockMatcher
 import io.github.portalappinspector.app.features.network.PortalNetworkMockResponse
 import io.github.portalappinspector.app.features.network.PortalNetworkRow
-import io.github.portalappinspector.app.features.screenmirror.PortalScreenMirrorFrame
-import io.github.portalappinspector.app.features.sharedprefs.PortalSharedPrefItem
+import io.github.portalappinspector.app.util.nowEpochMillis
+import io.viascom.nanoid.NanoId
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
-import kotlin.random.Random
-import io.github.portalappinspector.app.util.*
-import io.viascom.nanoid.NanoId
-import kotlinx.serialization.json.Json
 
 internal val networkJson = Json {
     ignoreUnknownKeys = true // Ignore extra keys coming from incoming requests

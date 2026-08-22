@@ -1,9 +1,8 @@
 package io.github.portalappinspector.app.util
 
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.Json
 import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 

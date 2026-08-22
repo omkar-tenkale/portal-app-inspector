@@ -5,9 +5,9 @@ import io.github.docklayout.DockColumn
 import io.github.docklayout.DockNode
 import io.github.docklayout.DockPanel
 import io.github.docklayout.DockRow
+import io.github.portalappinspector.app.data.StorageJson
 import io.github.portalappinspector.app.features.files.PortalFileItem
 import io.github.portalappinspector.app.features.network.PortalNetworkCall
-import io.github.portalappinspector.app.data.StorageJson
 import io.github.portalappinspector.app.ui.tabs.FilesTab
 import io.github.portalappinspector.app.ui.tabs.LogsTab
 import io.github.portalappinspector.app.ui.tabs.NetworkResponseTab

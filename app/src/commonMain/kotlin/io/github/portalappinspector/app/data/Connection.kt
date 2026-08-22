@@ -1,8 +1,12 @@
 package io.github.portalappinspector.app.data
 
 import io.github.portalappinspector.PortalManifest
+import io.github.portalappinspector.app.util.nowEpochMillis
+import io.github.portalappinspector.app.util.platformGetUrlQueryString
+import io.github.portalappinspector.app.util.platformLoadFromStorage
+import io.github.portalappinspector.app.util.platformNavigateToApp
+import io.github.portalappinspector.app.util.platformSaveToStorage
 import kotlinx.serialization.Serializable
-import io.github.portalappinspector.app.util.*
 import kotlinx.serialization.json.Json
 
 internal val StorageJson = Json {

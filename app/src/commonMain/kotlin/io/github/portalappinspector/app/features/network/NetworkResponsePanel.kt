@@ -1,30 +1,27 @@
 package io.github.portalappinspector.app.features.network
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.interaction.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
-import androidx.compose.foundation.text.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.*
-import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.*
-import androidx.compose.ui.text.style.*
-import androidx.compose.ui.unit.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.focus.*
-import kotlinx.coroutines.*
-import io.github.portalappinspector.app.data.*
-import io.github.portalappinspector.app.ui.*
-import io.github.portalappinspector.app.ui.icons.*
-import io.github.portalappinspector.app.util.*
-import kotlinx.serialization.json.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.github.portalappinspector.app.ui.JsonText
+import io.github.portalappinspector.app.ui.PortalButton
+import io.github.portalappinspector.app.ui.PortalButtonKind
+import io.github.portalappinspector.app.ui.PortalColors
+import io.github.portalappinspector.app.ui.StatusCard
+import io.github.portalappinspector.app.ui.Text
 
 @Composable
 internal fun NetworkResponsePanel(call: PortalNetworkCall) {

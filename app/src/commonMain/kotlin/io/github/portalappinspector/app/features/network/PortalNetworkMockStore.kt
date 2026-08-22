@@ -3,7 +3,6 @@ package io.github.portalappinspector.app.features.network
 import io.github.portalappinspector.app.data.StorageJson
 import io.github.portalappinspector.app.util.platformLoadFromStorage
 import io.github.portalappinspector.app.util.platformSaveToStorage
-import kotlinx.serialization.json.Json
 
 internal object PortalNetworkMockStore {
     internal const val StorageKey = "portal.app.inspector.plugin-data.portal-network.network-mocks"
