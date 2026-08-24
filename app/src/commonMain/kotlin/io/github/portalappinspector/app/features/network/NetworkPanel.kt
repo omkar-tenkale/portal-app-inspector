@@ -40,6 +40,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 internal const val NetworkPluginId = "portal-network"
 
@@ -143,18 +144,45 @@ internal fun NetworkPanel(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val mobileView = false
-            if (mobileView) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, top = 6.dp, end = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            ResponsiveRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, top = 6.dp, end = 10.dp),
+                leftContent = {
+                    NetworkFilterBar(
+                        filters = state.filters,
+                        filterMode = state.filterMode,
+                        filterType = state.filterType,
+                        filterValue = state.filterValue,
+                        onFilterModeChange = { state.filterMode = it },
+                        onFilterTypeChange = {
+                            state.filterType = it
+                            state.filterValue = ""
+                        },
+                        onFilterValueChange = { state.filterValue = it },
+                        onAddFilter = { selectedMode, selectedType ->
+                            val nextFilter = NetworkFilterRule(
+                                mode = selectedMode,
+                                matcher = PortalNetworkMockMatcher(
+                                    type = selectedType,
+                                    value = state.filterValue.trim(),
+                                ),
+                            )
+                            if (nextFilter.matcher.value.isNotBlank()) {
+                                state.filters = state.filters + nextFilter
+                                state.filterValue = ""
+                            }
+                        },
+                        onDeleteFilter = { deleteIndex ->
+                            state.filters = state.filters.filterIndexed { index, _ -> index != deleteIndex }
+                        },
+                        modifier = Modifier,
+                    )
+                },
+                rightContent = {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         NetworkDetailActionButton(
                             icon = PortalTabIcons.Mock,
@@ -163,7 +191,6 @@ internal fun NetworkPanel(
                             enabled = enabled,
                             modifier = Modifier.height(28.dp),
                         )
-                        Spacer(Modifier.width(8.dp))
                         NetworkDetailActionButton(
                             icon = PortalTabIcons.Delete,
                             text = "Clear",
@@ -175,93 +202,8 @@ internal fun NetworkPanel(
                             modifier = Modifier.height(28.dp),
                         )
                     }
-                    NetworkFilterBar(
-                        filters = state.filters,
-                        filterMode = state.filterMode,
-                        filterType = state.filterType,
-                        filterValue = state.filterValue,
-                        onFilterModeChange = { state.filterMode = it },
-                        onFilterTypeChange = {
-                            state.filterType = it
-                            state.filterValue = ""
-                        },
-                        onFilterValueChange = { state.filterValue = it },
-                        onAddFilter = { selectedMode, selectedType ->
-                            val nextFilter = NetworkFilterRule(
-                                mode = selectedMode,
-                                matcher = PortalNetworkMockMatcher(
-                                    type = selectedType,
-                                    value = state.filterValue.trim(),
-                                ),
-                            )
-                            if (nextFilter.matcher.value.isNotBlank()) {
-                                state.filters = state.filters + nextFilter
-                                state.filterValue = ""
-                            }
-                        },
-                        onDeleteFilter = { deleteIndex ->
-                            state.filters = state.filters.filterIndexed { index, _ -> index != deleteIndex }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, top = 6.dp, end = 10.dp),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    NetworkFilterBar(
-                        filters = state.filters,
-                        filterMode = state.filterMode,
-                        filterType = state.filterType,
-                        filterValue = state.filterValue,
-                        onFilterModeChange = { state.filterMode = it },
-                        onFilterTypeChange = {
-                            state.filterType = it
-                            state.filterValue = ""
-                        },
-                        onFilterValueChange = { state.filterValue = it },
-                        onAddFilter = { selectedMode, selectedType ->
-                            val nextFilter = NetworkFilterRule(
-                                mode = selectedMode,
-                                matcher = PortalNetworkMockMatcher(
-                                    type = selectedType,
-                                    value = state.filterValue.trim(),
-                                ),
-                            )
-                            if (nextFilter.matcher.value.isNotBlank()) {
-                                state.filters = state.filters + nextFilter
-                                state.filterValue = ""
-                            }
-                        },
-                        onDeleteFilter = { deleteIndex ->
-                            state.filters = state.filters.filterIndexed { index, _ -> index != deleteIndex }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    NetworkPanelToolbarDivider()
-                    NetworkDetailActionButton(
-                        icon = PortalTabIcons.Mock,
-                        text = "Mocks ${state.mocks.count { it.enabled }}",
-                        onClick = { state.mocksSheetOpen = true },
-                        enabled = enabled,
-                        modifier = Modifier.height(28.dp),
-                    )
-                    NetworkDetailActionButton(
-                        icon = PortalTabIcons.Delete,
-                        text = "Clear",
-                        onClick = {
-                            state.lastTimestamp = state.calls.maxOfOrNull { it.timestampEpochMillis } ?: state.lastTimestamp
-                            state.calls.clear()
-                        },
-                        enabled = state.calls.isNotEmpty(),
-                        modifier = Modifier.height(28.dp),
-                    )
-                }
-            }
+            )
             if (!enabled) {
                 StatusCard("Network plugin unavailable", "Install the portal-network plugin in the source app.", PortalColors.warning)
                 return@Column

@@ -54,6 +54,7 @@ import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import io.github.portalappinspector.app.util.formatSize
 import kotlinx.coroutines.delay
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 internal val FileRowHeight = 40.dp
 internal val FileRowMetaWidth = 160.dp
@@ -67,50 +68,52 @@ internal fun FilesRootsHeader(
     onPathClick: (String?) -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .horizontalScroll(scrollState),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            filePathSegments(path).forEachIndexed { index, segment ->
-                if (index > 0) {
-                    Image(
-                        painter = rememberVectorPainter(PortalTabIcons.ArrowRight),
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp),
-                        colorFilter = ColorFilter.tint(PortalColors.muted.copy(alpha = 0.7f)),
+    ResponsiveRow(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        leftContent = {
+            Row(
+                modifier = Modifier.horizontalScroll(scrollState),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                filePathSegments(path).forEachIndexed { index, segment ->
+                    if (index > 0) {
+                        Image(
+                            painter = rememberVectorPainter(PortalTabIcons.ArrowRight),
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            colorFilter = ColorFilter.tint(PortalColors.muted.copy(alpha = 0.7f)),
+                        )
+                    }
+                    FileBreadcrumbSegment(
+                        segment = segment,
+                        selected = segment.path == path,
+                        onClick = { onPathClick(segment.path) },
                     )
                 }
-                FileBreadcrumbSegment(
-                    segment = segment,
-                    selected = segment.path == path,
-                    onClick = { onPathClick(segment.path) },
+            }
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                FilesSearchField(
+                    value = filter,
+                    onValueChange = onFilterChange,
+                    modifier = Modifier.width(180.dp),
                 )
+                Box(
+                    modifier = Modifier.size(width = 42.dp, height = 18.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (loading) {
+                        PulsatingDots(color = PortalColors.accent, modifier = Modifier.fillMaxSize())
+                    }
+                }
             }
         }
-        FilesSearchField(
-            value = filter,
-            onValueChange = onFilterChange,
-            modifier = Modifier.width(180.dp),
-        )
-        Box(
-            modifier = Modifier.size(width = 42.dp, height = 18.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (loading) {
-                PulsatingDots(color = PortalColors.accent, modifier = Modifier.fillMaxSize())
-            }
-        }
-    }
+    )
 }
 
 @Composable

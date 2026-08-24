@@ -37,6 +37,7 @@ import io.github.portalappinspector.app.ui.StatusCard
 import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import kotlinx.coroutines.delay
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 @Composable
 internal fun NetworkMocksSheet(
@@ -106,42 +107,47 @@ private fun NetworkMocksTopBar(
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Row(
+    ResponsiveRow(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
             .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Mocks",
-                color = PortalColors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "$enabledCount enabled / $totalCount total",
-                color = PortalColors.muted,
-                fontSize = 11.sp,
-            )
+        leftContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Mocks",
+                    color = PortalColors.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "$enabledCount enabled / $totalCount total",
+                    color = PortalColors.muted,
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                NetworkDetailActionButton(
+                    icon = PortalTabIcons.Plus,
+                    text = "Add",
+                    onClick = onAdd,
+                    modifier = Modifier.height(28.dp),
+                )
+                NetworkPanelToolbarDivider()
+                NetworkDetailIconButton(
+                    icon = PortalTabIcons.Close,
+                    onClick = onDismiss,
+                )
+            }
         }
-        Spacer(Modifier.weight(1f))
-        NetworkDetailActionButton(
-            icon = PortalTabIcons.Plus,
-            text = "Add",
-            onClick = onAdd,
-            modifier = Modifier.height(28.dp),
-        )
-        NetworkPanelToolbarDivider()
-        NetworkDetailIconButton(
-            icon = PortalTabIcons.Close,
-            onClick = onDismiss,
-        )
-    }
+    )
 }
 
 @Composable

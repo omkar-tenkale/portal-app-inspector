@@ -50,6 +50,7 @@ import io.github.portalappinspector.app.util.nowEpochMillis
 import io.github.portalappinspector.app.util.toHeaderLines
 import io.github.portalappinspector.app.util.toHeaderMap
 import kotlinx.coroutines.delay
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 @Composable
 internal fun NetworkMockEditorSheet(
@@ -351,36 +352,40 @@ private fun NetworkMockEditorTopBar(
     onEnabledChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Row(
+    ResponsiveRow(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
             .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "Setup Mock",
-            color = PortalColors.text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.weight(1f))
-        if (savedIndicatorVisible) {
+        leftContent = {
             Text(
-                text = "Saved!",
-                color = PortalColors.accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                text = "Setup Mock",
+                color = PortalColors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.width(8.dp))
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (savedIndicatorVisible) {
+                    Text(
+                        text = "Saved!",
+                        color = PortalColors.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                PortalSwitch(checked = enabled, onCheckedChange = onEnabledChange)
+                NetworkPanelToolbarDivider()
+                NetworkDetailIconButton(
+                    icon = PortalTabIcons.Close,
+                    onClick = onDismiss,
+                )
+            }
         }
-        PortalSwitch(checked = enabled, onCheckedChange = onEnabledChange)
-        NetworkPanelToolbarDivider()
-        NetworkDetailIconButton(
-            icon = PortalTabIcons.Close,
-            onClick = onDismiss,
-        )
-    }
+    )
 }
 
 @Composable

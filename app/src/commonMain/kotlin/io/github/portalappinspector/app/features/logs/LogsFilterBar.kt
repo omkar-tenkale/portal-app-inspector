@@ -49,6 +49,7 @@ import io.github.portalappinspector.app.ui.InlineConditionTextField
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.Text
 import io.github.portalappinspector.app.ui.icons.PortalTabIcons
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -65,43 +66,45 @@ internal fun LogsFilterBar(
     onClear: () -> Unit,
     clearEnabled: Boolean,
 ) {
-    Row(
+    ResponsiveRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 10.dp, top = 6.dp, end = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        FlowRow(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            filters.withIndex().forEach { indexedFilter ->
-                LogFilterChip(
-                    rule = indexedFilter.value,
-                    onDelete = { onDeleteFilter(indexedFilter.index) },
+        leftContent = {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                filters.withIndex().forEach { indexedFilter ->
+                    LogFilterChip(
+                        rule = indexedFilter.value,
+                        onDelete = { onDeleteFilter(indexedFilter.index) },
+                    )
+                }
+                LogFilterAddRow(
+                    mode = filterMode,
+                    type = filterType,
+                    value = filterValue,
+                    onModeChange = onFilterModeChange,
+                    onTypeChange = onFilterTypeChange,
+                    onValueChange = onFilterValueChange,
+                    onAdd = onAddFilter,
                 )
             }
-            LogFilterAddRow(
-                mode = filterMode,
-                type = filterType,
-                value = filterValue,
-                onModeChange = onFilterModeChange,
-                onTypeChange = onFilterTypeChange,
-                onValueChange = onFilterValueChange,
-                onAdd = onAddFilter,
-            )
+        },
+        rightContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LogsToolbarDivider()
+                LogsToolbarActionButton(
+                    icon = PortalTabIcons.Delete,
+                    text = "Clear",
+                    onClick = onClear,
+                    enabled = clearEnabled,
+                    modifier = Modifier.height(28.dp).padding(start = 10.dp),
+                )
+            }
         }
-        LogsToolbarDivider()
-        LogsToolbarActionButton(
-            icon = PortalTabIcons.Delete,
-            text = "Clear",
-            onClick = onClear,
-            enabled = clearEnabled,
-            modifier = Modifier.height(28.dp),
-        )
-    }
+    )
 }
 
 @Composable

@@ -49,6 +49,7 @@ import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 internal const val ScreenMirrorPluginId = "portal-screen-mirror"
 
@@ -368,12 +369,9 @@ private fun ScreenMirrorHeader(
     frame: ScreenMirrorFrameMetadata?,
     fps: Int,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    ResponsiveRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+        leftContent = {
             Text(
                 text = frame?.let {
                     "${it.width} x ${it.height} • ${it.format.uppercase()} • ${formatSize(it.sizeBytes)}"
@@ -382,21 +380,23 @@ private fun ScreenMirrorHeader(
                 fontSize = 12.sp,
                 maxLines = 1,
             )
+        },
+        rightContent = {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(PortalColors.button)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (fps >= 30) "30 FPS (Active)" else "2 FPS (Idle)",
+                    color = PortalColors.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
         }
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(PortalColors.button)
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = if (fps >= 30) "30 FPS (Active)" else "2 FPS (Idle)",
-                color = PortalColors.text,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
-        }
-    }
+    )
 }

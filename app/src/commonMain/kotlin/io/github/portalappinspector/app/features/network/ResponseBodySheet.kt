@@ -61,6 +61,7 @@ import io.github.portalappinspector.app.util.formatAbsoluteLogTime
 import io.github.portalappinspector.app.util.formatNetworkSize
 import io.github.portalappinspector.app.util.jsTimezoneOffsetMinutes
 import io.github.portalappinspector.app.util.jsUses12HourClock
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 @Composable
 internal fun ResponseBodySheet(
@@ -142,35 +143,40 @@ private fun NetworkDetailTopBar(
     onOpenTab: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Row(
+    ResponsiveRow(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
             .padding(horizontal = 10.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        NetworkDetailSectionSelector(
-            selectedSection = selectedSection,
-            expanded = menuExpanded,
-            onClick = onToggleMenu,
-        )
-        Spacer(Modifier.weight(1f))
-        NetworkDetailActionButton(
-            icon = PortalTabIcons.Mock,
-            text = "Mock",
-            onClick = onMock,
-            modifier = Modifier.height(28.dp),
-        )
-        NetworkPanelToolbarDivider()
-        NetworkDetailIconButton(
-            icon = PortalTabIcons.OpenInNew,
-            onClick = onOpenTab,
-        )
-        NetworkDetailIconButton(
-            icon = PortalTabIcons.Close,
-            onClick = onDismiss,
-        )
-    }
+        leftContent = {
+            NetworkDetailSectionSelector(
+                selectedSection = selectedSection,
+                expanded = menuExpanded,
+                onClick = onToggleMenu,
+            )
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                NetworkDetailActionButton(
+                    icon = PortalTabIcons.Mock,
+                    text = "Mock",
+                    onClick = onMock,
+                    modifier = Modifier.height(28.dp),
+                )
+                NetworkPanelToolbarDivider()
+                NetworkDetailIconButton(
+                    icon = PortalTabIcons.OpenInNew,
+                    onClick = onOpenTab,
+                )
+                NetworkDetailIconButton(
+                    icon = PortalTabIcons.Close,
+                    onClick = onDismiss,
+                )
+            }
+        }
+    )
 }
 
 @Composable

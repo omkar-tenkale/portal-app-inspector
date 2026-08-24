@@ -22,6 +22,7 @@ import io.github.portalappinspector.app.ui.PortalButtonKind
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.StatusCard
 import io.github.portalappinspector.app.ui.Text
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 @Composable
 internal fun NetworkResponsePanel(call: PortalNetworkCall) {
@@ -52,58 +53,64 @@ internal fun ResponseBodyHeader(
     secondaryActionText: String? = null,
     onSecondaryAction: (() -> Unit)? = null,
 ) {
-    Row(
+    ResponsiveRow(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = "${call.method} ${call.endpoint}",
-                color = PortalColors.text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = buildString {
-                    append(call.statusCode?.toString() ?: "ERR")
-                    append(" | ")
-                    append(call.durationMillis)
-                    append(" ms")
-                    call.responseContentType?.let {
+        leftContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = "${call.method} ${call.endpoint}",
+                    color = PortalColors.text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = buildString {
+                        append(call.statusCode?.toString() ?: "ERR")
                         append(" | ")
-                        append(it)
-                    }
-                    if (call.responseBodyTruncated) append(" | truncated")
-                },
-                color = PortalColors.muted,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+                        append(call.durationMillis)
+                        append(" ms")
+                        call.responseContentType?.let {
+                            append(" | ")
+                            append(it)
+                        }
+                        if (call.responseBodyTruncated) append(" | truncated")
+                    },
+                    color = PortalColors.muted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (extraActionText != null && onExtraAction != null) {
+                    PortalButton(
+                        text = extraActionText,
+                        onClick = onExtraAction,
+                        kind = PortalButtonKind.Primary,
+                    )
+                }
+                PortalButton(
+                    text = actionText,
+                    onClick = onAction,
+                    enabled = actionEnabled,
+                    kind = PortalButtonKind.Primary,
+                )
+                if (secondaryActionText != null && onSecondaryAction != null) {
+                    PortalButton(
+                        text = secondaryActionText,
+                        onClick = onSecondaryAction,
+                    )
+                }
+            }
         }
-        if (extraActionText != null && onExtraAction != null) {
-            PortalButton(
-                text = extraActionText,
-                onClick = onExtraAction,
-                kind = PortalButtonKind.Primary,
-            )
-        }
-        PortalButton(
-            text = actionText,
-            onClick = onAction,
-            enabled = actionEnabled,
-            kind = PortalButtonKind.Primary,
-        )
-        if (secondaryActionText != null && onSecondaryAction != null) {
-            PortalButton(
-                text = secondaryActionText,
-                onClick = onSecondaryAction,
-            )
-        }
-    }
+    )
 }
 
 @Composable

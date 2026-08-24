@@ -67,6 +67,7 @@ import io.github.portalappinspector.app.ui.icons.PortalTabIcons
 import io.github.portalappinspector.app.util.copyTextToClipboard
 import io.github.portalappinspector.app.util.formatJsonOrNull
 import kotlinx.coroutines.launch
+import io.github.portalappinspector.app.ui.ResponsiveRow
 
 internal enum class JsonTextMode {
     Json,
@@ -292,82 +293,91 @@ private fun JsonTextHeader(
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ResponsiveRow(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .padding(horizontal = 12.dp),
-    ) {
-        BasicTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            singleLine = true,
-            textStyle = TextStyle(
-                color = PortalColors.text,
-                fontFamily = FontFamily.SansSerif,
-                fontSize = 12.sp,
-            ),
-            cursorBrush = SolidColor(PortalColors.accent),
-            modifier = Modifier
-                .size(width = 132.dp, height = 20.dp)
-                .focusRequester(searchFocusRequester)
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) {
-                        false
-                    } else {
-                        when (event.key) {
-                            Key.Enter,
-                            Key.DirectionDown,
-                            Key.DirectionRight -> {
-                                if (nextEnabled) {
-                                    onNext()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        leftContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = PortalColors.text,
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = 12.sp,
+                    ),
+                    cursorBrush = SolidColor(PortalColors.accent),
+                    modifier = Modifier
+                        .size(width = 132.dp, height = 20.dp)
+                        .focusRequester(searchFocusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) {
+                                false
+                            } else {
+                                when (event.key) {
+                                    Key.Enter,
+                                    Key.DirectionDown,
+                                    Key.DirectionRight -> {
+                                        if (nextEnabled) {
+                                            onNext()
+                                        }
+                                        true
+                                    }
+                                    Key.DirectionUp,
+                                    Key.DirectionLeft -> {
+                                        if (previousEnabled) {
+                                            onPrevious()
+                                        }
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                true
                             }
-                            Key.DirectionUp,
-                            Key.DirectionLeft -> {
-                                if (previousEnabled) {
-                                    onPrevious()
-                                }
-                                true
+                        },
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "Search",
+                                    color = PortalColors.muted.copy(alpha = 0.7f),
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
-                            else -> false
+                            innerTextField()
                         }
-                    }
-                },
-            decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) {
-                        Text(
-                            text = "Search",
-                            color = PortalColors.muted.copy(alpha = 0.7f),
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-        Text(
-            text = resultLabel,
-            color = PortalColors.muted,
-            fontSize = 11.sp,
-            maxLines = 1,
-        )
-        JsonTextSearchButton("<", previousEnabled, onPrevious)
-        JsonTextSearchButton(">", nextEnabled, onNext)
-        Spacer(Modifier.weight(1f))
-        JsonTextCopyButton(onClick = onCopy)
-        JsonTextModeSelector(
-            selectedMode = selectedMode,
-            jsonValid = jsonValid,
-            onModeChange = onModeChange,
-        )
-    }
+                    },
+                )
+                Text(
+                    text = resultLabel,
+                    color = PortalColors.muted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
+                JsonTextSearchButton("<", previousEnabled, onPrevious)
+                JsonTextSearchButton(">", nextEnabled, onNext)
+            }
+        },
+        rightContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                JsonTextCopyButton(onClick = onCopy)
+                JsonTextModeSelector(
+                    selectedMode = selectedMode,
+                    jsonValid = jsonValid,
+                    onModeChange = onModeChange,
+                )
+            }
+        }
+    )
 }
 
 @Composable
