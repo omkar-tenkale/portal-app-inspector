@@ -22,9 +22,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -55,6 +64,9 @@ import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 internal const val ScreenMirrorPluginId = "portal-screen-mirror"
 
@@ -64,6 +76,15 @@ internal fun ScreenMirrorPanel(
     focused: Boolean,
 ) {
     val enabled = api.hasPlugin(ScreenMirrorPluginId)
+    val toastHost = io.github.portalappinspector.app.ui.toast.LocalToastHost.current
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(focused) {
+        if (focused) {
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     var frame by remember(api) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }
     var frameBytes by remember(api) { mutableStateOf<ByteArray?>(null) }
     var error by remember(api) { mutableStateOf<String?>(null) }
@@ -162,7 +183,27 @@ internal fun ScreenMirrorPanel(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    scope.launch {
+                        runCatching {
+                            api.request(
+                                pluginId = ScreenMirrorPluginId,
+                                payload = buildJsonObject {
+                                    put("type", "pressBack")
+                                }
+                            )
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!enabled) {

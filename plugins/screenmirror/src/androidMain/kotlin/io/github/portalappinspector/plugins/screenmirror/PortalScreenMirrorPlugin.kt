@@ -70,6 +70,15 @@ class PortalScreenMirrorPlugin : PortalStreamingPlugin {
                 ScreenMirrorStore.ensureActive(scale, maxFps)
                 success(request, ScreenMirrorStore.framePayload(afterFrameEpochMillis))
             }
+            "pressBack" -> {
+                ScreenMirrorStore.pressBack()
+                success(
+                    request,
+                    buildJsonObject {
+                        put("type", "pressBackResult")
+                    },
+                )
+            }
             "sendTouch" -> {
                 val action = request.payload["action"]?.jsonPrimitive?.contentOrNull
                     ?: return portalPluginErrorResponse(request, "missing_action", "sendTouch requires action.")
@@ -175,6 +184,12 @@ private object ScreenMirrorStore {
         synchronized(lock) {
             latestFrame?.takeIf { it.updatedAtEpochMillis > afterEpochMillis }
         }
+
+    fun pressBack() {
+        mainHandler.post {
+            currentActivity?.get()?.onBackPressed()
+        }
+    }
 
     fun sendTouch(action: String, xRatio: Double, yRatio: Double) {
         installHooks()
