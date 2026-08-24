@@ -34,7 +34,7 @@ internal fun ResponsiveRow(
                 verticalAlignment = verticalAlignment,
                 horizontalArrangement = horizontalArrangement
             ) {
-                Box(modifier = Modifier.weight(1f, fill = false)) {
+                Box(modifier = Modifier.weight(1f)) {
                     leftContent()
                 }
                 Spacer(modifier = Modifier.width(spacing))

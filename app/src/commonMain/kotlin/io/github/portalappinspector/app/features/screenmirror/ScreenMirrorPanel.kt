@@ -12,12 +12,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import io.github.portalappinspector.app.data.PortalApi
 import io.github.portalappinspector.app.ui.PortalColors
 import io.github.portalappinspector.app.ui.PulsatingDots
+import io.github.portalappinspector.app.ui.ResponsiveRow
 import io.github.portalappinspector.app.ui.RowDivider
 import io.github.portalappinspector.app.ui.StatusCard
 import io.github.portalappinspector.app.ui.Text
@@ -56,7 +55,6 @@ import io.ktor.websocket.readBytes
 import io.ktor.websocket.readText
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import io.github.portalappinspector.app.ui.ResponsiveRow
 
 internal const val ScreenMirrorPluginId = "portal-screen-mirror"
 
@@ -69,13 +67,13 @@ internal fun ScreenMirrorPanel(
     var frameBytes by remember(api) { mutableStateOf<ByteArray?>(null) }
     var error by remember(api) { mutableStateOf<String?>(null) }
     var displayedError by remember(api) { mutableStateOf<String?>(null) }
+    var isReconnecting by remember(api) { mutableStateOf(false) }
     var inputConnected by remember(api) { mutableStateOf(false) }
-    
+
     var pointerPosition by remember { mutableStateOf<Offset?>(null) }
     var isPointerPressed by remember { mutableStateOf(false) }
-    
+
     val fps = if (pointerPosition != null || isPointerPressed) 30 else 2
-    
     val bitmap = remember(frameBytes) { frameBytes?.toImageBitmapOrNull() }
     val touchEvents = remember(api) { Channel<ScreenMirrorTouchEvent>(Channel.UNLIMITED) }
 
@@ -95,10 +93,10 @@ internal fun ScreenMirrorPanel(
         )
     }
 
-    // Debounce the error state so it doesn't flicker during transient drops
+    // Increased error overlay threshold (1.5s) to eliminate quick status flashes
     LaunchedEffect(error) {
         if (error != null) {
-            delay(600L)
+            delay(1500L)
             displayedError = error
         } else {
             displayedError = null
@@ -106,13 +104,15 @@ internal fun ScreenMirrorPanel(
     }
 
     LaunchedEffect(enabled, api, fps) {
-        error = null
         if (!enabled) return@LaunchedEffect
 
         while (true) {
             runCatching {
                 api.webSocket(ScreenMirrorPluginId, "frames", fps.let { "scale=0.5&maxFps=$it" }) {
                     var pendingFrame: ScreenMirrorFrameMetadata? = null
+                    isReconnecting = false
+                    error = null
+
                     for (message in incoming) {
                         when (message) {
                             is Frame.Text -> {
@@ -124,7 +124,6 @@ internal fun ScreenMirrorPanel(
                                     frame = metadata
                                     frameBytes = message.readBytes()
                                     pendingFrame = null
-                                    error = null
                                 }
                             }
                             else -> Unit
@@ -132,6 +131,7 @@ internal fun ScreenMirrorPanel(
                     }
                 }
             }.onFailure { throwable ->
+                isReconnecting = true
                 error = throwable.message ?: throwable::class.simpleName
             }
             delay(500L)
@@ -153,17 +153,15 @@ internal fun ScreenMirrorPanel(
                         inputConnected = false
                     }
                 }
-            }.onFailure { throwable ->
+            }.onFailure {
                 inputConnected = false
-                error = throwable.message ?: throwable::class.simpleName
             }
             delay(500L)
         }
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!enabled) {
@@ -174,10 +172,10 @@ internal fun ScreenMirrorPanel(
         ScreenMirrorHeader(
             frame = frame,
             fps = fps,
-            isError = error != null,
+            isReconnecting = isReconnecting,
         )
         RowDivider()
-        
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -261,9 +259,9 @@ internal fun ScreenMirrorPanel(
                         bitmap = bitmap,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().let {
-                            if (error != null) it.alpha(0.6f) else it
-                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .alpha(if (isReconnecting) 0.85f else 1.0f),
                     )
                     pointerPosition?.let { pos ->
                         val pointerScale by animateFloatAsState(
@@ -288,7 +286,7 @@ internal fun ScreenMirrorPanel(
                             )
                         }
                     }
-                } else if (error == null) {
+                } else {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -299,7 +297,6 @@ internal fun ScreenMirrorPanel(
                 }
             }
 
-            // Debounced Error Overlay
             ScreenMirrorErrorOverlay(
                 displayedError = displayedError,
                 modifier = Modifier
@@ -420,7 +417,7 @@ private fun Int.writeLittleEndian(target: ByteArray, offset: Int) {
 private fun ScreenMirrorHeader(
     frame: ScreenMirrorFrameMetadata?,
     fps: Int,
-    isError: Boolean,
+    isReconnecting: Boolean,
 ) {
     ResponsiveRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
@@ -436,51 +433,17 @@ private fun ScreenMirrorHeader(
         },
         rightContent = {
             val statusText = when {
-                isError -> "Reconnecting..."
-                fps >= 30 -> "30 FPS (Active)"
-                else -> "2 FPS (Idle)"
+                isReconnecting -> "Reconnecting..."
+                fps >= 30 -> "30 FPS"
+                else -> "2 FPS"
             }
-            val statusColor = when {
-                isError -> PortalColors.warning
-                fps >= 30 -> PortalColors.success
-                else -> PortalColors.muted
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(PortalColors.button)
-                    .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (isError) {
-                        PulsatingDots(
-                            color = statusColor,
-                            dotDiameter = 4.dp,
-                            modifier = Modifier.size(width = 20.dp, height = 12.dp)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(statusColor)
-                        )
-                    }
-                    Text(
-                        text = statusText,
-                        color = PortalColors.text,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                }
-            }
+            Text(
+                text = statusText,
+                color = if (isReconnecting) PortalColors.warning else PortalColors.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
         }
     )
 }

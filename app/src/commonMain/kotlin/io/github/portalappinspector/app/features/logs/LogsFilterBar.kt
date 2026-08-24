@@ -94,7 +94,6 @@ internal fun LogsFilterBar(
         },
         rightContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LogsToolbarDivider()
                 LogsToolbarActionButton(
                     icon = PortalTabIcons.Delete,
                     text = "Clear",
