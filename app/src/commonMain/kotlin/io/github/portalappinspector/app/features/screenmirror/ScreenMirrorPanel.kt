@@ -1,6 +1,11 @@
 package io.github.portalappinspector.app.features.screenmirror
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -61,6 +68,7 @@ internal fun ScreenMirrorPanel(
     var frame by remember(api) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }
     var frameBytes by remember(api) { mutableStateOf<ByteArray?>(null) }
     var error by remember(api) { mutableStateOf<String?>(null) }
+    var displayedError by remember(api) { mutableStateOf<String?>(null) }
     var inputConnected by remember(api) { mutableStateOf(false) }
     
     var pointerPosition by remember { mutableStateOf<Offset?>(null) }
@@ -85,6 +93,16 @@ internal fun ScreenMirrorPanel(
                 y = normalized.y,
             )
         )
+    }
+
+    // Debounce the error state so it doesn't flicker during transient drops
+    LaunchedEffect(error) {
+        if (error != null) {
+            delay(600L)
+            displayedError = error
+        } else {
+            displayedError = null
+        }
     }
 
     LaunchedEffect(enabled, api, fps) {
@@ -156,122 +174,156 @@ internal fun ScreenMirrorPanel(
         ScreenMirrorHeader(
             frame = frame,
             fps = fps,
+            isError = error != null,
         )
         RowDivider()
-        error?.let {
-            StatusCard("Screen Mirror request failed", it, PortalColors.error)
-        }
+        
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color.Black)
-                .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp))
-                .pointerHoverIcon(if (pointerPosition != null) PointerIcon.Crosshair else PointerIcon.Default)
-                .pointerInput(enabled, api, bitmap != null) {
-                    if (!enabled || bitmap == null) return@pointerInput
-                    var activePointerId: PointerId? = null
-                    var lastPosition = Offset.Zero
-                    var lastSize = IntSize.Zero
-                    try {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val bounds = size
-                                val firstChange = event.changes.firstOrNull()
-                                if (firstChange != null) {
-                                    val normalized = firstChange.position.normalizedInFittedFrame(bounds, frame, clampOutsideFrame = false)
-                                    if (normalized != null && event.type != androidx.compose.ui.input.pointer.PointerEventType.Exit) {
-                                        pointerPosition = firstChange.position
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            // Main Mirror Surface
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black)
+                    .border(1.dp, PortalColors.border, RoundedCornerShape(6.dp))
+                    .pointerHoverIcon(if (pointerPosition != null) PointerIcon.Crosshair else PointerIcon.Default)
+                    .pointerInput(enabled, api, bitmap != null) {
+                        if (!enabled || bitmap == null) return@pointerInput
+                        var activePointerId: PointerId? = null
+                        var lastPosition = Offset.Zero
+                        var lastSize = IntSize.Zero
+                        try {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val bounds = size
+                                    val firstChange = event.changes.firstOrNull()
+                                    if (firstChange != null) {
+                                        val normalized = firstChange.position.normalizedInFittedFrame(bounds, frame, clampOutsideFrame = false)
+                                        if (normalized != null && event.type != androidx.compose.ui.input.pointer.PointerEventType.Exit) {
+                                            pointerPosition = firstChange.position
+                                        } else {
+                                            pointerPosition = null
+                                        }
+                                    }
+                                    val activeChange = activePointerId?.let { id ->
+                                        event.changes.firstOrNull { it.id == id }
+                                    }
+                                    if (activeChange == null) {
+                                        val down = event.changes.firstOrNull { it.changedToDownIgnoreConsumed() }
+                                        if (down != null) {
+                                            activePointerId = down.id
+                                            lastPosition = down.position
+                                            lastSize = bounds
+                                            isPointerPressed = true
+                                            queueTouch("down", down.position, bounds)
+                                            down.consume()
+                                        }
                                     } else {
-                                        pointerPosition = null
-                                    }
-                                }
-                                val activeChange = activePointerId?.let { id ->
-                                    event.changes.firstOrNull { it.id == id }
-                                }
-                                if (activeChange == null) {
-                                    val down = event.changes.firstOrNull { it.changedToDownIgnoreConsumed() }
-                                    if (down != null) {
-                                        activePointerId = down.id
-                                        lastPosition = down.position
+                                        lastPosition = activeChange.position
                                         lastSize = bounds
-                                        isPointerPressed = true
-                                        queueTouch("down", down.position, bounds)
-                                        down.consume()
-                                    }
-                                } else {
-                                    lastPosition = activeChange.position
-                                    lastSize = bounds
-                                    when {
-                                        activeChange.changedToUpIgnoreConsumed() -> {
-                                            isPointerPressed = false
-                                            queueTouch("up", activeChange.position, bounds)
-                                            activePointerId = null
-                                            activeChange.consume()
-                                        }
-                                        !activeChange.pressed -> {
-                                            isPointerPressed = false
-                                            queueTouch("cancel", activeChange.position, bounds)
-                                            activePointerId = null
-                                            activeChange.consume()
-                                        }
-                                        activeChange.positionChangedIgnoreConsumed() -> {
-                                            queueTouch("move", activeChange.position, bounds)
-                                            activeChange.consume()
+                                        when {
+                                            activeChange.changedToUpIgnoreConsumed() -> {
+                                                isPointerPressed = false
+                                                queueTouch("up", activeChange.position, bounds)
+                                                activePointerId = null
+                                                activeChange.consume()
+                                            }
+                                            !activeChange.pressed -> {
+                                                isPointerPressed = false
+                                                queueTouch("cancel", activeChange.position, bounds)
+                                                activePointerId = null
+                                                activeChange.consume()
+                                            }
+                                            activeChange.positionChangedIgnoreConsumed() -> {
+                                                queueTouch("move", activeChange.position, bounds)
+                                                activeChange.consume()
+                                            }
                                         }
                                     }
                                 }
                             }
+                        } finally {
+                            if (activePointerId != null) {
+                                queueTouch("cancel", lastPosition, lastSize)
+                            }
+                            isPointerPressed = false
                         }
-                    } finally {
-                        if (activePointerId != null) {
-                            queueTouch("cancel", lastPosition, lastSize)
-                        }
-                        isPointerPressed = false
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (bitmap != null) {
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                pointerPosition?.let { pos ->
-                    val pointerScale by animateFloatAsState(
-                        targetValue = if (isPointerPressed) 0.7f else 1.0f,
-                        label = "pointerScale"
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().let {
+                            if (error != null) it.alpha(0.6f) else it
+                        },
                     )
-
-                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                        val baseRadius = 24.dp.toPx()
-                        val currentRadius = baseRadius * pointerScale
-
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.1f),
-                            radius = currentRadius,
-                            center = pos
+                    pointerPosition?.let { pos ->
+                        val pointerScale by animateFloatAsState(
+                            targetValue = if (isPointerPressed) 0.7f else 1.0f,
+                            label = "pointerScale"
                         )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.5f),
-                            radius = currentRadius,
-                            center = pos,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
-                        )
+
+                        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                            val baseRadius = 24.dp.toPx()
+                            val currentRadius = baseRadius * pointerScale
+
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.1f),
+                                radius = currentRadius,
+                                center = pos
+                            )
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.5f),
+                                radius = currentRadius,
+                                center = pos,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4.dp.toPx())
+                            )
+                        }
                     }
-                }
-            } else if (error == null) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 42.dp, height = 18.dp))
-                    Text("Waiting for first frame", color = PortalColors.muted, fontSize = 13.sp)
+                } else if (error == null) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PulsatingDots(color = PortalColors.accent, modifier = Modifier.size(width = 42.dp, height = 18.dp))
+                        Text("Waiting for first frame", color = PortalColors.muted, fontSize = 13.sp)
+                    }
                 }
             }
+
+            // Debounced Error Overlay
+            ScreenMirrorErrorOverlay(
+                displayedError = displayedError,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+                    .fillMaxWidth(0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScreenMirrorErrorOverlay(
+    displayedError: String?,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = displayedError != null,
+        enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
+        exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 }),
+        modifier = modifier
+    ) {
+        displayedError?.let { msg ->
+            StatusCard("Connection Interrupted", msg, PortalColors.error)
         }
     }
 }
@@ -368,6 +420,7 @@ private fun Int.writeLittleEndian(target: ByteArray, offset: Int) {
 private fun ScreenMirrorHeader(
     frame: ScreenMirrorFrameMetadata?,
     fps: Int,
+    isError: Boolean,
 ) {
     ResponsiveRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
@@ -382,20 +435,51 @@ private fun ScreenMirrorHeader(
             )
         },
         rightContent = {
+            val statusText = when {
+                isError -> "Reconnecting..."
+                fps >= 30 -> "30 FPS (Active)"
+                else -> "2 FPS (Idle)"
+            }
+            val statusColor = when {
+                isError -> PortalColors.warning
+                fps >= 30 -> PortalColors.success
+                else -> PortalColors.muted
+            }
+
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .background(PortalColors.button)
+                    .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = if (fps >= 30) "30 FPS (Active)" else "2 FPS (Idle)",
-                    color = PortalColors.text,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isError) {
+                        PulsatingDots(
+                            color = statusColor,
+                            dotDiameter = 4.dp,
+                            modifier = Modifier.size(width = 20.dp, height = 12.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(statusColor)
+                        )
+                    }
+                    Text(
+                        text = statusText,
+                        color = PortalColors.text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     )
