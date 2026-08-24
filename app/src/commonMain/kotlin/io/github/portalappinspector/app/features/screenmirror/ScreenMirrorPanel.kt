@@ -61,6 +61,7 @@ internal const val ScreenMirrorPluginId = "portal-screen-mirror"
 @Composable
 internal fun ScreenMirrorPanel(
     api: PortalApi,
+    focused: Boolean,
 ) {
     val enabled = api.hasPlugin(ScreenMirrorPluginId)
     var frame by remember(api) { mutableStateOf<ScreenMirrorFrameMetadata?>(null) }

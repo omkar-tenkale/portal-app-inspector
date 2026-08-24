@@ -25,7 +25,6 @@ import androidx.compose.ui.zIndex
 import io.github.docklayout.DockLayout
 import io.github.docklayout.rememberDockState
 import io.github.docklayout.tabRenderers
-import io.github.portalappinspector.PortalManifest
 import io.github.portalappinspector.app.data.PortalConnectionStore
 import io.github.portalappinspector.app.data.PortalLaunchParams
 import io.github.portalappinspector.app.data.PortalSession
@@ -220,9 +219,10 @@ internal fun PortalApp() {
                                             api = session,
                                         )
                                     }
-                                    renderer<ScreenMirrorTab> { _, _ ->
+                                    renderer<ScreenMirrorTab> { _, state ->
                                         ScreenMirrorPanel(
                                             api = session,
+                                            state.isFocused
                                         )
                                     }
                                     renderer<NetworkResponseTab> { tab, _ ->
