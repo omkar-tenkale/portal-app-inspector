@@ -108,7 +108,7 @@ internal object DockLayoutPersistence {
         if (missingTabs.isEmpty()) return this
 
         return when (val node = this) {
-            null -> DockPanel(tabs = tabs)
+            null -> buildDefaultLayout(tabs)
             is DockPanel -> node.copy(tabs = node.tabs + missingTabs)
             is DockRow -> node.copy(children = node.children.withTabs(missingTabs))
             is DockColumn -> node.copy(children = node.children.withTabs(missingTabs))
@@ -306,6 +306,27 @@ internal object DockLayoutPersistence {
                 responseBodyTruncated = responseBodyTruncated,
                 isMocked = isMocked,
             )
+    }
+
+
+    private fun buildDefaultLayout(tabs: List<PortalTab>): DockNode<PortalTab> {
+        val files = tabs.filter { it is FilesTab }
+        val network = tabs.filter { it is NetworkTab }
+        val logs = tabs.filter { it is LogsTab }
+        val screenMirror = tabs.filter { it is ScreenMirrorTab }
+        val others = tabs.filterNot { it is FilesTab || it is NetworkTab || it is LogsTab || it is ScreenMirrorTab }
+
+        val pFiles = if (files.isNotEmpty()) DockPanel(weight = 0.7545483f, tabs = files) else null
+        val pNetwork = if (network.isNotEmpty() || others.isNotEmpty()) DockPanel(weight = 1.2454517f, tabs = network + others) else null
+        val row1 = if (pFiles != null || pNetwork != null) DockRow(weight = 1.2092464f, children = listOfNotNull(pFiles, pNetwork)) else null
+
+        val pLogs = if (logs.isNotEmpty()) DockPanel(weight = 0.7907536f, tabs = logs) else null
+        val col1 = if (row1 != null || pLogs != null) DockColumn(weight = 1.064592f, children = listOfNotNull(row1, pLogs)) else null
+
+        val pScreenMirror = if (screenMirror.isNotEmpty()) DockPanel(weight = 0.4754176f, tabs = screenMirror) else null
+        val root = DockRow(weight = 1.0f, children = listOfNotNull(col1, pScreenMirror))
+        
+        return if (root.children.isEmpty()) DockPanel(tabs = tabs) else root
     }
 
     private fun storageKey(appId: String): String =
