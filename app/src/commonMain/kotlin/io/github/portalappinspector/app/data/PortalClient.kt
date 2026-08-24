@@ -93,8 +93,8 @@ internal class PortalSourceClient {
     }
     internal var nextRequestId = 0L
 
-    suspend fun health(connection: PortalConnection): PortalHealth =
-        httpClient.get("${connection.baseUrl}/portal/health").body()
+//    suspend fun health(connection: PortalConnection): PortalHealth =
+//        httpClient.get("${connection.baseUrl}/portal/health").body()
 
     suspend fun manifest(connection: PortalConnection): PortalManifest =
         httpClient.get("${connection.baseUrl}/portal/manifest").body()

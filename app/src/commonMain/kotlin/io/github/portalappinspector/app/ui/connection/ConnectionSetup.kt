@@ -63,32 +63,19 @@ import io.github.portalappinspector.app.util.copyTextToClipboard
 @Composable
 internal fun WelcomeConnectionPanel(
     connection: PortalConnection,
-    appIconPngBase64: String?,
     animateAppIconReveal: Boolean,
     showSetupRequired: Boolean,
     isEmulator: Boolean,
 ) {
     val appIconScale = remember { Animatable(1f) }
-    val appIconAlpha by animateFloatAsState(
-        targetValue = if (appIconPngBase64 == null) 0f else 1f,
-        animationSpec = tween(180),
-    )
-    val placeholderScale by animateFloatAsState(
-        targetValue = if (appIconPngBase64 == null) 1f else 0.82f,
-        animationSpec = tween(220),
-    )
-    val placeholderAlpha by animateFloatAsState(
-        targetValue = if (appIconPngBase64 == null) 1f else 0f,
-        animationSpec = tween(180),
-    )
     val showSetupChrome = showSetupRequired && connection.isValid
     val setupScale by animateFloatAsState(
         targetValue = if (showSetupChrome) 1f else 0.96f,
         animationSpec = tween(260),
     )
 
-    LaunchedEffect(appIconPngBase64, animateAppIconReveal) {
-        if (appIconPngBase64 == null || !animateAppIconReveal) {
+    LaunchedEffect(animateAppIconReveal) {
+        if (!animateAppIconReveal) {
             appIconScale.snapTo(1f)
         } else {
             appIconScale.snapTo(1.28f)
@@ -129,26 +116,8 @@ internal fun WelcomeConnectionPanel(
             ) {
                 AppIconPlaceholder(
                     Modifier
-                        .size(42.dp)
-                        .graphicsLayer {
-                            alpha = placeholderAlpha
-                            scaleX = placeholderScale
-                            scaleY = placeholderScale
-                        },
+                        .size(42.dp),
                 )
-                if (appIconPngBase64 != null) {
-                    AppIcon(
-                        iconPngBase64 = appIconPngBase64,
-                        fallbackText = "",
-                        modifier = Modifier
-                            .size(42.dp)
-                            .graphicsLayer {
-                                alpha = appIconAlpha
-                                scaleX = appIconScale.value
-                                scaleY = appIconScale.value
-                            },
-                    )
-                }
             }
         }
         AnimatedVisibility(
@@ -588,7 +557,6 @@ private fun WelcomeConnectionPanelPreview() {
     ) {
         WelcomeConnectionPanel(
             connection = mockConnection,
-            appIconPngBase64 = null,
             animateAppIconReveal = false,
             showSetupRequired = true,
             isEmulator = false

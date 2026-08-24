@@ -1,6 +1,5 @@
 package io.github.portalappinspector.app.features.logs
 
-import io.github.portalappinspector.app.data.logLine
 import io.github.portalappinspector.app.features.network.NetworkFilterMode
 
 internal const val AndroidLogSource = "androidLog"

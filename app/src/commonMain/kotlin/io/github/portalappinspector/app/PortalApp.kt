@@ -26,7 +26,6 @@ import io.github.docklayout.DockLayout
 import io.github.docklayout.rememberDockState
 import io.github.docklayout.tabRenderers
 import io.github.portalappinspector.PortalManifest
-import io.github.portalappinspector.app.data.PortalConnection
 import io.github.portalappinspector.app.data.PortalConnectionStore
 import io.github.portalappinspector.app.data.PortalLaunchParams
 import io.github.portalappinspector.app.data.PortalSession
@@ -68,8 +67,6 @@ internal fun PortalApp() {
     val toastHost = remember { ToastHostState() }
     CompositionLocalProvider(LocalToastHost provides toastHost) {
         val launchParams = remember { PortalLaunchParams.fromUrl() }
-        val mobileView = launchParams.mobileView
-        val client = remember { PortalSourceClient() }
         var savedConnections by remember { mutableStateOf(PortalConnectionStore.load()) }
         var connectionCandidate by remember {
             mutableStateOf(launchParams.connection ?: savedConnections.firstOrNull()?.connection)
@@ -77,9 +74,8 @@ internal fun PortalApp() {
         var activeSession by remember { mutableStateOf<PortalSession?>(null) }
         var connectionFailing by remember { mutableStateOf(false) }
         var showOverlayConnectionDialog by remember { mutableStateOf(false) }
-        var connecting by remember { mutableStateOf(false) }
         var showSetupRequired by remember { mutableStateOf(false) }
-        var connectingManifest by remember { mutableStateOf<PortalManifest?>(null) }
+
         var layoutRevision by remember { mutableStateOf(0) }
         val dynamicTabs = remember { mutableStateListOf<PortalTab>() }
         var activeTabRequest by remember { mutableStateOf<PortalTab?>(null) }
@@ -101,19 +97,16 @@ internal fun PortalApp() {
         }
 
         LaunchedEffect(connectionCandidate) {
+            val client = PortalSourceClient()
             val target = connectionCandidate ?: return@LaunchedEffect
-            connecting = true
             showSetupRequired = false
-            connectingManifest = null
             val setupTimer = launch {
                 delay(1_000L)
                 showSetupRequired = true
             }
             while (true) {
                 val success = runCatching {
-                    client.health(target)
                     val manifest = client.manifest(target)
-                    connectingManifest = manifest
                     savedConnections = PortalConnectionStore.upsert(manifest, target)
 
                     val session = PortalSession(
@@ -132,7 +125,6 @@ internal fun PortalApp() {
                 delay(1_000L)
                 showSetupRequired = true
             }
-            connecting = false
         }
 
         Box(
@@ -160,7 +152,6 @@ internal fun PortalApp() {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             WelcomeConnectionPanel(
                                 connection = connectionCandidate!!,
-                                appIconPngBase64 = connectingManifest?.appIconPngBase64,
                                 animateAppIconReveal = true,
                                 showSetupRequired = showSetupRequired,
                                 isEmulator = launchParams.isEmulator,
@@ -173,7 +164,7 @@ internal fun PortalApp() {
                     var persistedLayout by remember(currentAppId) { mutableStateOf(DockLayoutPersistence.load(currentAppId)) }
                     val filesPanelState = remember(currentAppId) { FilesPanelState(currentAppId) }
 
-                    if (!mobileView) {
+                    if (launchParams.mobileView.not()) {
                         TopBar(
                             manifest = session.manifest,
                             savedConnections = savedConnections,
@@ -222,7 +213,6 @@ internal fun PortalApp() {
                                         NetworkPanel(
                                             api = session,
                                             onOpenResponseTab = ::openResponseTab,
-                                            mobileView = mobileView,
                                         )
                                     }
                                     renderer<LogsTab> { _, _ ->
@@ -263,7 +253,6 @@ internal fun PortalApp() {
                             ) {
                                 WelcomeConnectionPanel(
                                     connection = session.connection,
-                                    appIconPngBase64 = session.manifest.appIconPngBase64,
                                     animateAppIconReveal = false,
                                     showSetupRequired = true,
                                     isEmulator = launchParams.isEmulator

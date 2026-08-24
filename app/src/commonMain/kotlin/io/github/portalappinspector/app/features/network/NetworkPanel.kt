@@ -47,7 +47,6 @@ internal const val NetworkPluginId = "portal-network"
 internal fun NetworkPanel(
     api: PortalApi,
     onOpenResponseTab: (PortalNetworkCall) -> Unit,
-    mobileView: Boolean = false,
 ) {
     val enabled = api.hasPlugin(NetworkPluginId)
     val appId = api.appId
@@ -144,6 +143,7 @@ internal fun NetworkPanel(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            val mobileView = false
             if (mobileView) {
                 Column(
                     modifier = Modifier
